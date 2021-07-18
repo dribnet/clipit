@@ -293,6 +293,53 @@ def do_init(args):
     init_image_tensor = None
 
     # Image initialisation
+    if args.init_image or args.init_noise:
+        # setup init image wih pil
+        # first - always start with noise or blank
+        if args.init_noise == 'pixels':
+            img = random_noise_image(args.size[0], args.size[1])
+        elif args.init_noise == 'gradient':
+            img = random_gradient_image(args.size[0], args.size[1])
+        else:
+            img = Image.new(mode="RGB", size=(args.size[0], args.size[1]), color=(255, 255, 255))
+        starting_image = img.convert('RGB')
+        starting_image = starting_image.resize((sideX, sideY), Image.LANCZOS)
+
+        if args.init_image:
+            # now we might overlay an init image
+            if 'http' in args.init_image:
+              img = Image.open(urlopen(args.init_image))
+            else:
+              img = Image.open(args.init_image)
+            # this version is just needed potentially for the loss function
+            init_image = img.convert('RGB')
+            init_image = init_image.resize((sideX, sideY), Image.LANCZOS)
+            init_image = TF.to_tensor(init_image)
+            init_image_tensor = init_image.to(device).unsqueeze(0) * 2 - 1
+
+            # this version gets overlaid on the background (noise)
+            top_image = img.convert('RGBA')
+            top_image = top_image.resize((sideX, sideY), Image.LANCZOS)
+            if args.init_image_alpha:
+                top_image.putalpha(args.init_image_alpha)
+            starting_image.paste(top_image, (0, 0), top_image)
+
+        starting_image.save("starting_image.png")
+        starting_tensor = TF.to_tensor(starting_image)
+        z, *_ = model.encode(starting_tensor.to(device).unsqueeze(0) * 2 - 1)
+
+    else:
+        # legacy init
+        one_hot = F.one_hot(torch.randint(n_toks, [toksY * toksX], device=device), n_toks).float()
+        # z = one_hot @ model.quantize.embedding.weight
+        if gumbel:
+            z = one_hot @ model.quantize.embed.weight
+        else:
+            z = one_hot @ model.quantize.embedding.weight
+
+        z = z.view([-1, toksY, toksX, e_dim]).permute(0, 3, 1, 2)
+
+    dead = """
     if args.init_image:
         if 'http' in args.init_image:
           img = Image.open(urlopen(args.init_image))
@@ -325,6 +372,7 @@ def do_init(args):
 
         z = z.view([-1, toksY, toksX, e_dim]).permute(0, 3, 1, 2)
         #z = torch.rand_like(z)*2						# NR: check
+"""
 
     z_orig = z.clone()
     z.requires_grad_(True)
@@ -564,8 +612,12 @@ def main():
     vq_parser.add_argument("-ip",   "--image_prompts", type=str, help="Image prompts / target image", default=[], dest='image_prompts')
     vq_parser.add_argument("-i",    "--iterations", type=int, help="Number of iterations", default=500, dest='max_iterations')
     vq_parser.add_argument("-se",   "--save_every", type=int, help="Save image iterations", default=50, dest='display_freq')
+    vq_parser.add_argument("-ove",  "--overlay_every", type=int, help="Overlay image iterations", default=None, dest='overlay_every')
+    vq_parser.add_argument("-ovi",  "--overlay_image", type=str, help="Overlay image (if not init)", default=None, dest='overlay_image')
+    vq_parser.add_argument("-ova",  "--overlay_alpha", type=int, help="Overlay alpha (0-255)", default=None, dest='overlay_alpha')
     vq_parser.add_argument("-s",    "--size", nargs=2, type=int, help="Image size (width height)", default=[512,512], dest='size')
     vq_parser.add_argument("-ii",   "--init_image", type=str, help="Initial image", default=None, dest='init_image')
+    vq_parser.add_argument("-iia",  "--init_image_alpha", type=int, help="Init image alpha (0-255)", default=None, dest='init_image_alpha')
     vq_parser.add_argument("-in",   "--init_noise", type=str, help="Initial noise image (pixels or gradient)", default=None, dest='init_noise')
     vq_parser.add_argument("-iw",   "--init_weight", type=float, help="Initial weight", default=0., dest='init_weight')
     vq_parser.add_argument("-iwc",  "--init_weight_cos", type=float, help="Initial weight cos loss", default=0., dest='init_weight_cos')
