@@ -37,56 +37,6 @@ from PIL import ImageFile, Image, PngImagePlugin
 ImageFile.LOAD_TRUNCATED_IMAGES = True
 
 
-# Create the parser
-vq_parser = argparse.ArgumentParser(description='Image generation using VQGAN+CLIP')
-
-# Add the arguments
-vq_parser.add_argument("-p",    "--prompts", type=str, help="Text prompts", default="A nerdy rodent", dest='prompts')
-vq_parser.add_argument("-ip",   "--image_prompts", type=str, help="Image prompts / target image", default=[], dest='image_prompts')
-vq_parser.add_argument("-i",    "--iterations", type=int, help="Number of iterations", default=500, dest='max_iterations')
-vq_parser.add_argument("-se",   "--save_every", type=int, help="Save image iterations", default=50, dest='display_freq')
-vq_parser.add_argument("-s",    "--size", nargs=2, type=int, help="Image size (width height)", default=[512,512], dest='size')
-vq_parser.add_argument("-ii",   "--init_image", type=str, help="Initial image", default=None, dest='init_image')
-vq_parser.add_argument("-in",   "--init_noise", type=str, help="Initial noise image (pixels or gradient)", default=None, dest='init_noise')
-vq_parser.add_argument("-iw",   "--init_weight", type=float, help="Initial weight", default=0., dest='init_weight')
-vq_parser.add_argument("-iwc",  "--init_weight_cos", type=float, help="Initial weight cos loss", default=0., dest='init_weight_cos')
-vq_parser.add_argument("-iwp",  "--init_weight_pix", type=float, help="Initial weight pix loss", default=0., dest='init_weight_pix')
-vq_parser.add_argument("-m",    "--clip_model", type=str, help="CLIP model", default='ViT-B/32', dest='clip_model')
-vq_parser.add_argument("-conf", "--vqgan_config", type=str, help="VQGAN config", default=f'checkpoints/vqgan_imagenet_f16_16384.yaml', dest='vqgan_config')
-vq_parser.add_argument("-ckpt", "--vqgan_checkpoint", type=str, help="VQGAN checkpoint", default=f'checkpoints/vqgan_imagenet_f16_16384.ckpt', dest='vqgan_checkpoint')
-vq_parser.add_argument("-nps",  "--noise_prompt_seeds", nargs="*", type=int, help="Noise prompt seeds", default=[], dest='noise_prompt_seeds')
-vq_parser.add_argument("-npw",  "--noise_prompt_weights", nargs="*", type=float, help="Noise prompt weights", default=[], dest='noise_prompt_weights')
-vq_parser.add_argument("-lr",   "--learning_rate", type=float, help="Learning rate", default=0.1, dest='step_size')
-vq_parser.add_argument("-cuts", "--num_cuts", type=int, help="Number of cuts", default=32, dest='cutn')
-vq_parser.add_argument("-cutp", "--cut_power", type=float, help="Cut power", default=1., dest='cut_pow')
-vq_parser.add_argument("-sd",   "--seed", type=int, help="Seed", default=None, dest='seed')
-vq_parser.add_argument("-opt",  "--optimiser", type=str, help="Optimiser (Adam, AdamW, Adagrad, Adamax, DiffGrad, AdamP or RAdam)", default='Adam', dest='optimiser')
-vq_parser.add_argument("-o",    "--output", type=str, help="Output file", default="output.png", dest='output')
-vq_parser.add_argument("-vid",  "--video", type=bool, help="Create video frames?", default=False, dest='make_video')
-vq_parser.add_argument("-d",    "--deterministic", type=bool, help="Enable cudnn.deterministic?", default=False, dest='cudnn_determinism')
-#vq_parser.add_argument("-aug", "--augments", type=str, help="Augments (to be defined)", default='Unknown', dest='augments')
-
-# Execute the parse_args() method
-args = vq_parser.parse_args()
-
-if args.cudnn_determinism:
-   torch.backends.cudnn.deterministic = True
-
-# Split text prompts using the pipe character
-if args.prompts:
-    args.prompts = [phrase.strip() for phrase in args.prompts.split("|")]
-    
-# Split target images using the pipe character
-if args.image_prompts:
-    args.image_prompts = args.image_prompts.split("|")
-    args.image_prompts = [image.strip() for image in args.image_prompts]
-    
-# Make video steps directory
-if args.make_video:
-    if not os.path.exists('steps'):
-        os.mkdir('steps')
-
-
 # Functions and classes
 def sinc(x):
     return torch.where(x != 0, torch.sin(math.pi * x) / (math.pi * x), x.new_ones([]))
@@ -300,145 +250,148 @@ def resize_image(image, out_size):
     size = round((area * ratio)**0.5), round((area / ratio)**0.5)
     return image.resize(size, Image.LANCZOS)
 
+def do_init(args):
+    global model, opt, perceptor, normalize, make_cutouts
+    global z, z_orig, z_min, z_max, init_image_tensor
+    global pMs
 
+    # Do it (init that is)
+    device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
+    model = load_vqgan_model(args.vqgan_config, args.vqgan_checkpoint).to(device)
+    jit = True if float(torch.__version__[:3]) < 1.8 else False
+    perceptor = clip.load(args.clip_model, jit=jit)[0].eval().requires_grad_(False).to(device)
 
-# Do it
-device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
-model = load_vqgan_model(args.vqgan_config, args.vqgan_checkpoint).to(device)
-jit = True if float(torch.__version__[:3]) < 1.8 else False
-perceptor = clip.load(args.clip_model, jit=jit)[0].eval().requires_grad_(False).to(device)
+    # clock=deepcopy(perceptor.visual.positional_embedding.data)
+    # perceptor.visual.positional_embedding.data = clock/clock.max()
+    # perceptor.visual.positional_embedding.data=clamp_with_grad(clock,0,1)
 
-# clock=deepcopy(perceptor.visual.positional_embedding.data)
-# perceptor.visual.positional_embedding.data = clock/clock.max()
-# perceptor.visual.positional_embedding.data=clamp_with_grad(clock,0,1)
+    cut_size = perceptor.visual.input_resolution
 
-cut_size = perceptor.visual.input_resolution
+    f = 2**(model.decoder.num_resolutions - 1)
+    make_cutouts = MakeCutouts(cut_size, args.cutn, cut_pow=args.cut_pow)
 
-f = 2**(model.decoder.num_resolutions - 1)
-make_cutouts = MakeCutouts(cut_size, args.cutn, cut_pow=args.cut_pow)
+    toksX, toksY = args.size[0] // f, args.size[1] // f
+    sideX, sideY = toksX * f, toksY * f
 
-toksX, toksY = args.size[0] // f, args.size[1] // f
-sideX, sideY = toksX * f, toksY * f
-
-if gumbel:
-    e_dim = 256
-    n_toks = model.quantize.n_embed
-    z_min = model.quantize.embed.weight.min(dim=0).values[None, :, None, None]
-    z_max = model.quantize.embed.weight.max(dim=0).values[None, :, None, None]
-else:
-    e_dim = model.quantize.e_dim
-    n_toks = model.quantize.n_e
-    z_min = model.quantize.embedding.weight.min(dim=0).values[None, :, None, None]
-    z_max = model.quantize.embedding.weight.max(dim=0).values[None, :, None, None]
-    
-# z_min = model.quantize.embedding.weight.min(dim=0).values[None, :, None, None]
-# z_max = model.quantize.embedding.weight.max(dim=0).values[None, :, None, None]
-
-# normalize_imagenet = transforms.Normalize(mean=[0.485, 0.456, 0.406],
-#                                            std=[0.229, 0.224, 0.225])
-
-init_image_tensor = None
-
-# Image initialisation
-if args.init_image:
-    if 'http' in args.init_image:
-      img = Image.open(urlopen(args.init_image))
-    else:
-      img = Image.open(args.init_image)
-    pil_image = img.convert('RGB')
-    pil_image = pil_image.resize((sideX, sideY), Image.LANCZOS)
-    pil_tensor = TF.to_tensor(pil_image)
-    init_image_tensor = pil_tensor.to(device).unsqueeze(0) * 2 - 1
-    z, *_ = model.encode(init_image_tensor)
-elif args.init_noise == 'pixels':
-    img = random_noise_image(args.size[0], args.size[1])    
-    pil_image = img.convert('RGB')
-    pil_image = pil_image.resize((sideX, sideY), Image.LANCZOS)
-    pil_tensor = TF.to_tensor(pil_image)
-    z, *_ = model.encode(pil_tensor.to(device).unsqueeze(0) * 2 - 1)
-elif args.init_noise == 'gradient':
-    img = random_gradient_image(args.size[0], args.size[1])
-    pil_image = img.convert('RGB')
-    pil_image = pil_image.resize((sideX, sideY), Image.LANCZOS)
-    pil_tensor = TF.to_tensor(pil_image)
-    z, *_ = model.encode(pil_tensor.to(device).unsqueeze(0) * 2 - 1)
-else:
-    one_hot = F.one_hot(torch.randint(n_toks, [toksY * toksX], device=device), n_toks).float()
-    # z = one_hot @ model.quantize.embedding.weight
     if gumbel:
-        z = one_hot @ model.quantize.embed.weight
+        e_dim = 256
+        n_toks = model.quantize.n_embed
+        z_min = model.quantize.embed.weight.min(dim=0).values[None, :, None, None]
+        z_max = model.quantize.embed.weight.max(dim=0).values[None, :, None, None]
     else:
-        z = one_hot @ model.quantize.embedding.weight
+        e_dim = model.quantize.e_dim
+        n_toks = model.quantize.n_e
+        z_min = model.quantize.embedding.weight.min(dim=0).values[None, :, None, None]
+        z_max = model.quantize.embedding.weight.max(dim=0).values[None, :, None, None]
 
-    z = z.view([-1, toksY, toksX, e_dim]).permute(0, 3, 1, 2) 
-    #z = torch.rand_like(z)*2						# NR: check
+    # z_min = model.quantize.embedding.weight.min(dim=0).values[None, :, None, None]
+    # z_max = model.quantize.embedding.weight.max(dim=0).values[None, :, None, None]
 
-z_orig = z.clone()
-z.requires_grad_(True)
+    # normalize_imagenet = transforms.Normalize(mean=[0.485, 0.456, 0.406],
+    #                                            std=[0.229, 0.224, 0.225])
 
-pMs = []
-normalize = transforms.Normalize(mean=[0.48145466, 0.4578275, 0.40821073],
-                                  std=[0.26862954, 0.26130258, 0.27577711])
+    init_image_tensor = None
 
-# CLIP tokenize/encode
-# NR: Weights / blending
-for prompt in args.prompts:
-    txt, weight, stop = parse_prompt(prompt)
-    embed = perceptor.encode_text(clip.tokenize(txt).to(device)).float()
-    pMs.append(Prompt(embed, weight, stop).to(device))
+    # Image initialisation
+    if args.init_image:
+        if 'http' in args.init_image:
+          img = Image.open(urlopen(args.init_image))
+        else:
+          img = Image.open(args.init_image)
+        pil_image = img.convert('RGB')
+        pil_image = pil_image.resize((sideX, sideY), Image.LANCZOS)
+        pil_tensor = TF.to_tensor(pil_image)
+        init_image_tensor = pil_tensor.to(device).unsqueeze(0) * 2 - 1
+        z, *_ = model.encode(init_image_tensor)
+    elif args.init_noise == 'pixels':
+        img = random_noise_image(args.size[0], args.size[1])
+        pil_image = img.convert('RGB')
+        pil_image = pil_image.resize((sideX, sideY), Image.LANCZOS)
+        pil_tensor = TF.to_tensor(pil_image)
+        z, *_ = model.encode(pil_tensor.to(device).unsqueeze(0) * 2 - 1)
+    elif args.init_noise == 'gradient':
+        img = random_gradient_image(args.size[0], args.size[1])
+        pil_image = img.convert('RGB')
+        pil_image = pil_image.resize((sideX, sideY), Image.LANCZOS)
+        pil_tensor = TF.to_tensor(pil_image)
+        z, *_ = model.encode(pil_tensor.to(device).unsqueeze(0) * 2 - 1)
+    else:
+        one_hot = F.one_hot(torch.randint(n_toks, [toksY * toksX], device=device), n_toks).float()
+        # z = one_hot @ model.quantize.embedding.weight
+        if gumbel:
+            z = one_hot @ model.quantize.embed.weight
+        else:
+            z = one_hot @ model.quantize.embedding.weight
 
-for prompt in args.image_prompts:
-    path, weight, stop = parse_prompt(prompt)
-    img = Image.open(path)
-    pil_image = img.convert('RGB')
-    img = resize_image(pil_image, (sideX, sideY))
-    batch = make_cutouts(TF.to_tensor(img).unsqueeze(0).to(device))
-    embed = perceptor.encode_image(normalize(batch)).float()
-    pMs.append(Prompt(embed, weight, stop).to(device))
+        z = z.view([-1, toksY, toksX, e_dim]).permute(0, 3, 1, 2)
+        #z = torch.rand_like(z)*2						# NR: check
 
-for seed, weight in zip(args.noise_prompt_seeds, args.noise_prompt_weights):
-    gen = torch.Generator().manual_seed(seed)
-    embed = torch.empty([1, perceptor.visual.output_dim]).normal_(generator=gen)
-    pMs.append(Prompt(embed, weight).to(device))
+    z_orig = z.clone()
+    z.requires_grad_(True)
 
+    pMs = []
+    normalize = transforms.Normalize(mean=[0.48145466, 0.4578275, 0.40821073],
+                                      std=[0.26862954, 0.26130258, 0.27577711])
 
-# Set the optimiser
-if args.optimiser == "Adam":
-    opt = optim.Adam([z], lr=args.step_size)		# LR=0.1    
-elif args.optimiser == "AdamW":
-    opt = optim.AdamW([z], lr=args.step_size)		# LR=0.2    
-elif args.optimiser == "Adagrad":
-    opt = optim.Adagrad([z], lr=args.step_size)	# LR=0.5+
-elif args.optimiser == "Adamax":
-    opt = optim.Adamax([z], lr=args.step_size)	# LR=0.5+?
-elif args.optimiser == "DiffGrad":
-    opt = DiffGrad([z], lr=args.step_size)		# LR=2+?
-elif args.optimiser == "AdamP":
-    opt = AdamP([z], lr=args.step_size)		# LR=2+?
-elif args.optimiser == "RAdam":
-    opt = RAdam([z], lr=args.step_size)		# LR=2+?
+    # CLIP tokenize/encode
+    # NR: Weights / blending
+    for prompt in args.prompts:
+        txt, weight, stop = parse_prompt(prompt)
+        embed = perceptor.encode_text(clip.tokenize(txt).to(device)).float()
+        pMs.append(Prompt(embed, weight, stop).to(device))
 
+    for prompt in args.image_prompts:
+        path, weight, stop = parse_prompt(prompt)
+        img = Image.open(path)
+        pil_image = img.convert('RGB')
+        img = resize_image(pil_image, (sideX, sideY))
+        batch = make_cutouts(TF.to_tensor(img).unsqueeze(0).to(device))
+        embed = perceptor.encode_image(normalize(batch)).float()
+        pMs.append(Prompt(embed, weight, stop).to(device))
 
-# Output for the user
-print('Using device:', device)
-print('Optimising using:', args.optimiser)
-
-if args.prompts:
-    print('Using text prompts:', args.prompts)  
-if args.image_prompts:
-    print('Using image prompts:', args.image_prompts)
-if args.init_image:
-    print('Using initial image:', args.init_image)
-if args.noise_prompt_weights:
-    print('Noise prompt weights:', args.noise_prompt_weights)    
+    for seed, weight in zip(args.noise_prompt_seeds, args.noise_prompt_weights):
+        gen = torch.Generator().manual_seed(seed)
+        embed = torch.empty([1, perceptor.visual.output_dim]).normal_(generator=gen)
+        pMs.append(Prompt(embed, weight).to(device))
 
 
-if args.seed is None:
-    seed = torch.seed()
-else:
-    seed = args.seed  
-torch.manual_seed(seed)
-print('Using seed:', seed)
+    # Set the optimiser
+    if args.optimiser == "Adam":
+        opt = optim.Adam([z], lr=args.step_size)		# LR=0.1
+    elif args.optimiser == "AdamW":
+        opt = optim.AdamW([z], lr=args.step_size)		# LR=0.2
+    elif args.optimiser == "Adagrad":
+        opt = optim.Adagrad([z], lr=args.step_size)	# LR=0.5+
+    elif args.optimiser == "Adamax":
+        opt = optim.Adamax([z], lr=args.step_size)	# LR=0.5+?
+    elif args.optimiser == "DiffGrad":
+        opt = DiffGrad([z], lr=args.step_size)		# LR=2+?
+    elif args.optimiser == "AdamP":
+        opt = AdamP([z], lr=args.step_size)		# LR=2+?
+    elif args.optimiser == "RAdam":
+        opt = RAdam([z], lr=args.step_size)		# LR=2+?
+
+
+    # Output for the user
+    print('Using device:', device)
+    print('Optimising using:', args.optimiser)
+
+    if args.prompts:
+        print('Using text prompts:', args.prompts)
+    if args.image_prompts:
+        print('Using image prompts:', args.image_prompts)
+    if args.init_image:
+        print('Using initial image:', args.init_image)
+    if args.noise_prompt_weights:
+        print('Noise prompt weights:', args.noise_prompt_weights)
+
+
+    if args.seed is None:
+        seed = torch.seed()
+    else:
+        seed = args.seed
+    torch.manual_seed(seed)
+    print('Using seed:', seed)
 
 
 def synth(z):
@@ -448,9 +401,22 @@ def synth(z):
         z_q = vector_quantize(z.movedim(1, 3), model.quantize.embedding.weight).movedim(3, 1)
     return clamp_with_grad(model.decode(z_q).add(1).div(2), 0, 1)
 
+# dreaded globals (for now)
+z = None
+z_orig = None
+z_min = None
+z_max = None
+opt = None
+model = None
+perceptor = None
+normalize = None
+make_cutouts = None
+init_image_tensor = None
+pMs = None
 
 @torch.no_grad()
-def checkin(i, losses):
+def checkin(args, i, losses):
+    global z
     losses_str = ', '.join(f'{loss.item():g}' for loss in losses)
     tqdm.write(f'i: {i}, loss: {sum(losses).item():g}, losses: {losses_str}')
     out = synth(z)
@@ -459,8 +425,11 @@ def checkin(i, losses):
     TF.to_pil_image(out[0].cpu()).save(args.output, pnginfo=info) 						
 
 
-def ascend_txt():
-    global i
+def ascend_txt(args):
+    global i, perceptor, normalize, make_cutouts
+    global z, z_orig, init_image_tensor
+    global pMs
+
     out = synth(z)
     iii = perceptor.encode_image(normalize(make_cutouts(out))).float()
     
@@ -492,12 +461,13 @@ def ascend_txt():
     return result
 
 
-def train(i):
+def train(args, i):
+    global z, z_min, z_max
     opt.zero_grad(set_to_none=True)
-    lossAll = ascend_txt()
+    lossAll = ascend_txt(args)
     
     if i % args.display_freq == 0:
-        checkin(i, lossAll)
+        checkin(args, i, lossAll)
        
     loss = sum(lossAll)
     loss.backward()
@@ -506,22 +476,21 @@ def train(i):
     with torch.no_grad():
         z.copy_(z.maximum(z_min).minimum(z_max))
 
+def do_run(args):
+    i = 0
+    try:
+        with tqdm() as pbar:
+            while True:
+                train(args, i)
+                if i == args.max_iterations:
+                    break
+                i += 1
+                pbar.update()
+    except KeyboardInterrupt:
+        pass
 
-i = 0
-try:
-    with tqdm() as pbar:
-        while True:
-            train(i)
-            if i == args.max_iterations:
-                break
-            i += 1
-            pbar.update()
-except KeyboardInterrupt:
-    pass
-
-
-# Video generation
-if args.make_video:
+def do_video(args):
+    # Video generation
     init_frame = 1 # This is the frame where the video will start
     last_frame = i # You can change i to the number of the last frame you want to generate. It will raise an error if that number of frames does not exist.
 
@@ -561,4 +530,63 @@ if args.make_video:
         im.save(p.stdin, 'PNG')
     p.stdin.close()
     p.wait()
-    
+
+def main():
+    global z, model, base_size
+
+    # Create the parser
+    vq_parser = argparse.ArgumentParser(description='Image generation using VQGAN+CLIP')
+
+    # Add the arguments
+    vq_parser.add_argument("-p",    "--prompts", type=str, help="Text prompts", default="A nerdy rodent", dest='prompts')
+    vq_parser.add_argument("-ip",   "--image_prompts", type=str, help="Image prompts / target image", default=[], dest='image_prompts')
+    vq_parser.add_argument("-i",    "--iterations", type=int, help="Number of iterations", default=500, dest='max_iterations')
+    vq_parser.add_argument("-se",   "--save_every", type=int, help="Save image iterations", default=50, dest='display_freq')
+    vq_parser.add_argument("-s",    "--size", nargs=2, type=int, help="Image size (width height)", default=[512,512], dest='size')
+    vq_parser.add_argument("-ii",   "--init_image", type=str, help="Initial image", default=None, dest='init_image')
+    vq_parser.add_argument("-in",   "--init_noise", type=str, help="Initial noise image (pixels or gradient)", default=None, dest='init_noise')
+    vq_parser.add_argument("-iw",   "--init_weight", type=float, help="Initial weight", default=0., dest='init_weight')
+    vq_parser.add_argument("-iwc",  "--init_weight_cos", type=float, help="Initial weight cos loss", default=0., dest='init_weight_cos')
+    vq_parser.add_argument("-iwp",  "--init_weight_pix", type=float, help="Initial weight pix loss", default=0., dest='init_weight_pix')
+    vq_parser.add_argument("-m",    "--clip_model", type=str, help="CLIP model", default='ViT-B/32', dest='clip_model')
+    vq_parser.add_argument("-conf", "--vqgan_config", type=str, help="VQGAN config", default=f'checkpoints/vqgan_imagenet_f16_16384.yaml', dest='vqgan_config')
+    vq_parser.add_argument("-ckpt", "--vqgan_checkpoint", type=str, help="VQGAN checkpoint", default=f'checkpoints/vqgan_imagenet_f16_16384.ckpt', dest='vqgan_checkpoint')
+    vq_parser.add_argument("-nps",  "--noise_prompt_seeds", nargs="*", type=int, help="Noise prompt seeds", default=[], dest='noise_prompt_seeds')
+    vq_parser.add_argument("-npw",  "--noise_prompt_weights", nargs="*", type=float, help="Noise prompt weights", default=[], dest='noise_prompt_weights')
+    vq_parser.add_argument("-lr",   "--learning_rate", type=float, help="Learning rate", default=0.1, dest='step_size')
+    vq_parser.add_argument("-cuts", "--num_cuts", type=int, help="Number of cuts", default=32, dest='cutn')
+    vq_parser.add_argument("-cutp", "--cut_power", type=float, help="Cut power", default=1., dest='cut_pow')
+    vq_parser.add_argument("-sd",   "--seed", type=int, help="Seed", default=None, dest='seed')
+    vq_parser.add_argument("-opt",  "--optimiser", type=str, help="Optimiser (Adam, AdamW, Adagrad, Adamax, DiffGrad, AdamP or RAdam)", default='Adam', dest='optimiser')
+    vq_parser.add_argument("-o",    "--output", type=str, help="Output file", default="output.png", dest='output')
+    vq_parser.add_argument("-vid",  "--video", type=bool, help="Create video frames?", default=False, dest='make_video')
+    vq_parser.add_argument("-d",    "--deterministic", type=bool, help="Enable cudnn.deterministic?", default=False, dest='cudnn_determinism')
+    #vq_parser.add_argument("-aug", "--augments", type=str, help="Augments (to be defined)", default='Unknown', dest='augments')
+
+    # Execute the parse_args() method
+    args = vq_parser.parse_args()
+
+    if args.cudnn_determinism:
+       torch.backends.cudnn.deterministic = True
+
+    # Split text prompts using the pipe character
+    if args.prompts:
+        args.prompts = [phrase.strip() for phrase in args.prompts.split("|")]
+
+    # Split target images using the pipe character
+    if args.image_prompts:
+        args.image_prompts = args.image_prompts.split("|")
+        args.image_prompts = [image.strip() for image in args.image_prompts]
+
+    # Make video steps directory
+    if args.make_video:
+        if not os.path.exists('steps'):
+            os.mkdir('steps')
+
+    do_init(args)
+    do_run(args)
+    if args.make_video:
+        do_video(args)
+
+if __name__ == '__main__':
+    main()
