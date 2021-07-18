@@ -340,6 +340,17 @@ def do_init(args):
         embed = perceptor.encode_text(clip.tokenize(txt).to(device)).float()
         pMs.append(Prompt(embed, weight, stop).to(device))
 
+    for label in args.labels:
+        txt, weight, stop = parse_prompt(label)
+        texts = [template.format(txt) for template in imagenet_templates] #format with class
+        print(f"Tokenizing all of {texts}")
+        texts = clip.tokenize(texts).to(device) #tokenize
+        class_embeddings = perceptor.encode_text(texts) #embed with text encoder
+        class_embeddings /= class_embeddings.norm(dim=-1, keepdim=True)
+        class_embedding = class_embeddings.mean(dim=0)
+        class_embedding /= class_embedding.norm()
+        pMs.append(Prompt(class_embedding.unsqueeze(0), weight, stop).to(device))
+
     for prompt in args.image_prompts:
         path, weight, stop = parse_prompt(prompt)
         img = Image.open(path)
@@ -476,6 +487,16 @@ def train(args, i):
     with torch.no_grad():
         z.copy_(z.maximum(z_min).minimum(z_max))
 
+imagenet_templates = [
+    "itap of a {}.",
+    "a bad photo of the {}.",
+    "a origami {}.",
+    "a photo of the large {}.",
+    "a {} in a video game.",
+    "art of the {}.",
+    "a photo of the small {}.",
+]
+
 def do_run(args):
     i = 0
     try:
@@ -538,7 +559,8 @@ def main():
     vq_parser = argparse.ArgumentParser(description='Image generation using VQGAN+CLIP')
 
     # Add the arguments
-    vq_parser.add_argument("-p",    "--prompts", type=str, help="Text prompts", default="A nerdy rodent", dest='prompts')
+    vq_parser.add_argument("-p",    "--prompts", type=str, help="Text prompts", default=[], dest='prompts')
+    vq_parser.add_argument("-l",    "--labels", type=str, help="ImageNet labels", default=[], dest='labels')
     vq_parser.add_argument("-ip",   "--image_prompts", type=str, help="Image prompts / target image", default=[], dest='image_prompts')
     vq_parser.add_argument("-i",    "--iterations", type=int, help="Number of iterations", default=500, dest='max_iterations')
     vq_parser.add_argument("-se",   "--save_every", type=int, help="Save image iterations", default=50, dest='display_freq')
@@ -572,6 +594,10 @@ def main():
     # Split text prompts using the pipe character
     if args.prompts:
         args.prompts = [phrase.strip() for phrase in args.prompts.split("|")]
+
+    # Split text labels using the pipe character
+    if args.labels:
+        args.labels = [phrase.strip() for phrase in args.labels.split("|")]
 
     # Split target images using the pipe character
     if args.image_prompts:
