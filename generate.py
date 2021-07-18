@@ -49,6 +49,8 @@ vq_parser.add_argument("-s",    "--size", nargs=2, type=int, help="Image size (w
 vq_parser.add_argument("-ii",   "--init_image", type=str, help="Initial image", default=None, dest='init_image')
 vq_parser.add_argument("-in",   "--init_noise", type=str, help="Initial noise image (pixels or gradient)", default=None, dest='init_noise')
 vq_parser.add_argument("-iw",   "--init_weight", type=float, help="Initial weight", default=0., dest='init_weight')
+vq_parser.add_argument("-iwc",  "--init_weight_cos", type=float, help="Initial weight cos loss", default=0., dest='init_weight_cos')
+vq_parser.add_argument("-iwp",  "--init_weight_pix", type=float, help="Initial weight pix loss", default=0., dest='init_weight_pix')
 vq_parser.add_argument("-m",    "--clip_model", type=str, help="CLIP model", default='ViT-B/32', dest='clip_model')
 vq_parser.add_argument("-conf", "--vqgan_config", type=str, help="VQGAN config", default=f'checkpoints/vqgan_imagenet_f16_16384.yaml', dest='vqgan_config')
 vq_parser.add_argument("-ckpt", "--vqgan_checkpoint", type=str, help="VQGAN checkpoint", default=f'checkpoints/vqgan_imagenet_f16_16384.ckpt', dest='vqgan_checkpoint')
@@ -335,6 +337,8 @@ else:
 # normalize_imagenet = transforms.Normalize(mean=[0.485, 0.456, 0.406],
 #                                            std=[0.229, 0.224, 0.225])
 
+init_image_tensor = None
+
 # Image initialisation
 if args.init_image:
     if 'http' in args.init_image:
@@ -344,7 +348,8 @@ if args.init_image:
     pil_image = img.convert('RGB')
     pil_image = pil_image.resize((sideX, sideY), Image.LANCZOS)
     pil_tensor = TF.to_tensor(pil_image)
-    z, *_ = model.encode(pil_tensor.to(device).unsqueeze(0) * 2 - 1)
+    init_image_tensor = pil_tensor.to(device).unsqueeze(0) * 2 - 1
+    z, *_ = model.encode(init_image_tensor)
 elif args.init_noise == 'pixels':
     img = random_noise_image(args.size[0], args.size[1])    
     pil_image = img.convert('RGB')
@@ -462,8 +467,19 @@ def ascend_txt():
     result = []
 
     if args.init_weight:
-        # result.append(F.mse_loss(z, z_orig) * args.init_weight / 2)
-        result.append(F.mse_loss(z, torch.zeros_like(z_orig)) * ((1/torch.tensor(i*2 + 1))*args.init_weight) / 2)
+        cur_loss = F.mse_loss(z, z_orig) * args.init_weight / 2
+        result.append(cur_loss)
+
+    if args.init_weight_pix:
+        cur_loss = F.mse_loss(out, init_image_tensor) * args.init_weight / 2
+        result.append(cur_loss)
+
+    if args.init_weight_cos:
+        f = z.reshape(1,-1)
+        f2 = z_orig.reshape(1,-1)
+        y = torch.ones_like(f[0])
+        cur_loss = F.cosine_embedding_loss(f, f2, y) * args.init_weight
+        result.append(cur_loss)
 
     for prompt in pMs:
         result.append(prompt(iii))
