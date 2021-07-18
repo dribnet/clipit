@@ -253,7 +253,8 @@ def resize_image(image, out_size):
 def do_init(args):
     global model, opt, perceptor, normalize, make_cutouts
     global z, z_orig, z_min, z_max, init_image_tensor
-    global pMs
+    global gside_X, gside_Y, overlay_image_rgba
+    global pMs, device
 
     # Do it (init that is)
     device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
@@ -290,6 +291,10 @@ def do_init(args):
     # normalize_imagenet = transforms.Normalize(mean=[0.485, 0.456, 0.406],
     #                                            std=[0.229, 0.224, 0.225])
 
+    # save sideX, sideY in globals (need if using overlay)
+    gside_X = sideX
+    gside_Y = sideY
+
     init_image_tensor = None
 
     # Image initialisation
@@ -306,20 +311,21 @@ def do_init(args):
         starting_image = starting_image.resize((sideX, sideY), Image.LANCZOS)
 
         if args.init_image:
-            # now we might overlay an init image
+            # now we might overlay an init image (init_image also can be recycled as overlay)
             if 'http' in args.init_image:
-              img = Image.open(urlopen(args.init_image))
+              init_image = Image.open(urlopen(args.init_image))
             else:
-              img = Image.open(args.init_image)
-            # this version is just needed potentially for the loss function
-            init_image = img.convert('RGB')
-            init_image = init_image.resize((sideX, sideY), Image.LANCZOS)
-            init_image = TF.to_tensor(init_image)
-            init_image_tensor = init_image.to(device).unsqueeze(0) * 2 - 1
+              init_image = Image.open(args.init_image)
+            # this version is needed potentially for the loss function
+            init_image_rgb = init_image.convert('RGB')
+            init_image_rgb = init_image_rgb.resize((sideX, sideY), Image.LANCZOS)
+            init_image_tensor = TF.to_tensor(init_image_rgb)
+            init_image_tensor = init_image_tensor.to(device).unsqueeze(0) * 2 - 1
 
             # this version gets overlaid on the background (noise)
-            top_image = img.convert('RGBA')
-            top_image = top_image.resize((sideX, sideY), Image.LANCZOS)
+            init_image_rgba = init_image.convert('RGBA')
+            init_image_rgba = init_image_rgba.resize((sideX, sideY), Image.LANCZOS)
+            top_image = init_image_rgba.copy()
             if args.init_image_alpha:
                 top_image.putalpha(args.init_image_alpha)
             starting_image.paste(top_image, (0, 0), top_image)
@@ -339,40 +345,19 @@ def do_init(args):
 
         z = z.view([-1, toksY, toksX, e_dim]).permute(0, 3, 1, 2)
 
-    dead = """
-    if args.init_image:
-        if 'http' in args.init_image:
-          img = Image.open(urlopen(args.init_image))
+    if args.overlay_every:
+        if args.overlay_image:
+            if 'http' in args.overlay_image:
+              overlay_image = Image.open(urlopen(args.overlay_image))
+            else:
+              overlay_image = Image.open(args.overlay_image)
+            overlay_image_rgba = overlay_image.convert('RGBA')
+            overlay_image_rgba = overlay_image_rgba.resize((sideX, sideY), Image.LANCZOS)
         else:
-          img = Image.open(args.init_image)
-        pil_image = img.convert('RGB')
-        pil_image = pil_image.resize((sideX, sideY), Image.LANCZOS)
-        pil_tensor = TF.to_tensor(pil_image)
-        init_image_tensor = pil_tensor.to(device).unsqueeze(0) * 2 - 1
-        z, *_ = model.encode(init_image_tensor)
-    elif args.init_noise == 'pixels':
-        img = random_noise_image(args.size[0], args.size[1])
-        pil_image = img.convert('RGB')
-        pil_image = pil_image.resize((sideX, sideY), Image.LANCZOS)
-        pil_tensor = TF.to_tensor(pil_image)
-        z, *_ = model.encode(pil_tensor.to(device).unsqueeze(0) * 2 - 1)
-    elif args.init_noise == 'gradient':
-        img = random_gradient_image(args.size[0], args.size[1])
-        pil_image = img.convert('RGB')
-        pil_image = pil_image.resize((sideX, sideY), Image.LANCZOS)
-        pil_tensor = TF.to_tensor(pil_image)
-        z, *_ = model.encode(pil_tensor.to(device).unsqueeze(0) * 2 - 1)
-    else:
-        one_hot = F.one_hot(torch.randint(n_toks, [toksY * toksX], device=device), n_toks).float()
-        # z = one_hot @ model.quantize.embedding.weight
-        if gumbel:
-            z = one_hot @ model.quantize.embed.weight
-        else:
-            z = one_hot @ model.quantize.embedding.weight
-
-        z = z.view([-1, toksY, toksX, e_dim]).permute(0, 3, 1, 2)
-        #z = torch.rand_like(z)*2						# NR: check
-"""
+            overlay_image_rgba = init_image_rgba
+        if args.overlay_alpha:
+            overlay_image_rgba.putalpha(args.overlay_alpha)
+        overlay_image_rgba.save('overlay_image.png')
 
     z_orig = z.clone()
     z.requires_grad_(True)
@@ -472,17 +457,27 @@ normalize = None
 make_cutouts = None
 init_image_tensor = None
 pMs = None
+gside_X=None
+gside_Y=None
+overlay_image_rgba=None
+device=None
+# OK, THIS ONE IS AWFUL
+i=None
+
+@torch.no_grad()
+def z_to_pil():
+    global z
+    out = synth(z)
+    return TF.to_pil_image(out[0].cpu())
 
 @torch.no_grad()
 def checkin(args, i, losses):
-    global z
     losses_str = ', '.join(f'{loss.item():g}' for loss in losses)
     tqdm.write(f'i: {i}, loss: {sum(losses).item():g}, losses: {losses_str}')
-    out = synth(z)
     info = PngImagePlugin.PngInfo()
     info.add_text('comment', f'{args.prompts}')
-    TF.to_pil_image(out[0].cpu()).save(args.output, pnginfo=info) 						
-
+    img = z_to_pil()
+    img.save(args.output, pnginfo=info)
 
 def ascend_txt(args):
     global i, perceptor, normalize, make_cutouts
@@ -515,10 +510,31 @@ def ascend_txt(args):
     if args.make_video:    
         img = np.array(out.mul(255).clamp(0, 255)[0].cpu().detach().numpy().astype(np.uint8))[:,:,:]
         img = np.transpose(img, (1, 2, 0))
-        imageio.imwrite('./steps/' + str(i) + '.png', np.array(img))
+        imageio.imwrite(f'./steps/frame_{i:04d}.png', np.array(img))
 
     return result
 
+def re_average_z(args):
+    global z, gside_X, gside_Y
+    global model, device
+
+    # old_z = z.clone()
+    cur_z_image = z_to_pil()
+    cur_z_image = cur_z_image.convert('RGB')
+    if overlay_image_rgba:
+        # print("applying overlay image")
+        cur_z_image.save("before.png")
+        cur_z_image.paste(overlay_image_rgba, (0, 0), overlay_image_rgba)
+        cur_z_image.save("after.png")
+    cur_z_image = cur_z_image.resize((gside_X, gside_Y), Image.LANCZOS)
+    new_z, *_ = model.encode(TF.to_tensor(cur_z_image).to(device).unsqueeze(0) * 2 - 1)
+    # t_dist = F.pairwise_distance(new_z, old_z)
+    with torch.no_grad():
+        z.copy_(new_z)
+    # with torch.no_grad():
+    #     z.copy_(z.maximum(z_min).minimum(z_max))
+
+# torch.autograd.set_detect_anomaly(True)
 
 def train(args, i):
     global z, z_min, z_max
@@ -527,10 +543,13 @@ def train(args, i):
     
     if i % args.display_freq == 0:
         checkin(args, i, lossAll)
-       
+
     loss = sum(lossAll)
     loss.backward()
     opt.step()
+
+    if args.overlay_every and i != 0 and i % args.overlay_every == 0:
+        re_average_z(args)
     
     with torch.no_grad():
         z.copy_(z.maximum(z_min).minimum(z_max))
@@ -546,6 +565,8 @@ imagenet_templates = [
 ]
 
 def do_run(args):
+    global i
+
     i = 0
     try:
         with tqdm() as pbar:
@@ -559,6 +580,8 @@ def do_run(args):
         pass
 
 def do_video(args):
+    global i
+
     # Video generation
     init_frame = 1 # This is the frame where the video will start
     last_frame = i # You can change i to the number of the last frame you want to generate. It will raise an error if that number of frames does not exist.
@@ -573,7 +596,7 @@ def do_video(args):
     frames = []
     tqdm.write('Generating video...')
     for i in range(init_frame,last_frame): #
-        frames.append(Image.open("./steps/"+ str(i) +'.png'))
+        frames.append(Image.open(f'./steps/frame_{i:04d}.png'))
 
     #fps = last_frame/10
     fps = np.clip(total_frames/length,min_fps,max_fps)
