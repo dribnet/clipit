@@ -41,7 +41,7 @@ def isnotebook():
         shell = get_ipython().__class__.__name__
         if shell == 'ZMQInteractiveShell':
             return True   # Jupyter notebook or qtconsole
-        elsif shell == 'Shell':
+        elif shell == 'Shell':
             return True   # Seems to be what co-lab does
         elif shell == 'TerminalInteractiveShell':
             return False  # Terminal running IPython
