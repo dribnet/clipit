@@ -5,7 +5,6 @@ import argparse
 import math
 from pathlib import Path
 from urllib.request import urlopen
-from tqdm import tqdm
 import sys
 import os
 
@@ -36,6 +35,25 @@ import imageio
 from PIL import ImageFile, Image, PngImagePlugin
 ImageFile.LOAD_TRUNCATED_IMAGES = True
 
+# https://stackoverflow.com/a/39662359
+def isnotebook():
+    try:
+        shell = get_ipython().__class__.__name__
+        if shell == 'ZMQInteractiveShell':
+            return True   # Jupyter notebook or qtconsole
+        elif shell == 'TerminalInteractiveShell':
+            return False  # Terminal running IPython
+        else:
+            return False  # Other type (?)
+    except NameError:
+        return False      # Probably standard Python interpreter
+
+IS_NOTEBOOK = isnotebook()
+
+if IS_NOTEBOOK:
+    from tqdm.notebook import tqdm
+else:
+    from tqdm import tqdm
 
 # Functions and classes
 def sinc(x):
@@ -478,6 +496,8 @@ def checkin(args, i, losses):
     info.add_text('comment', f'{args.prompts}')
     img = z_to_pil()
     img.save(args.output, pnginfo=info)
+    if IS_NOTEBOOK:
+        display.display(display.Image(args.output))
 
 def ascend_txt(args):
     global i, perceptor, normalize, make_cutouts
@@ -494,14 +514,14 @@ def ascend_txt(args):
         result.append(cur_loss)
 
     if args.init_weight_pix:
-        cur_loss = F.mse_loss(out, init_image_tensor) * args.init_weight / 2
+        cur_loss = F.mse_loss(out, init_image_tensor) * args.init_weight_pix / 2
         result.append(cur_loss)
 
     if args.init_weight_cos:
         f = z.reshape(1,-1)
         f2 = z_orig.reshape(1,-1)
         y = torch.ones_like(f[0])
-        cur_loss = F.cosine_embedding_loss(f, f2, y) * args.init_weight
+        cur_loss = F.cosine_embedding_loss(f, f2, y) * args.init_weight_cos
         result.append(cur_loss)
 
     for prompt in pMs:
@@ -579,6 +599,9 @@ def do_run(args):
     except KeyboardInterrupt:
         pass
 
+    if args.make_video:
+        do_video(settings)
+
 def do_video(args):
     global i
 
@@ -623,9 +646,7 @@ def do_video(args):
     p.stdin.close()
     p.wait()
 
-def main():
-    global z, model, base_size
-
+def setup_parser():
     # Create the parser
     vq_parser = argparse.ArgumentParser(description='Image generation using VQGAN+CLIP')
 
@@ -658,10 +679,16 @@ def main():
     vq_parser.add_argument("-o",    "--output", type=str, help="Output file", default="output.png", dest='output')
     vq_parser.add_argument("-vid",  "--video", type=bool, help="Create video frames?", default=False, dest='make_video')
     vq_parser.add_argument("-d",    "--deterministic", type=bool, help="Enable cudnn.deterministic?", default=False, dest='cudnn_determinism')
-    #vq_parser.add_argument("-aug", "--augments", type=str, help="Augments (to be defined)", default='Unknown', dest='augments')
 
-    # Execute the parse_args() method
-    args = vq_parser.parse_args()
+    return vq_parser    
+
+def process_args(vq_parser, namespace=None):
+    if namespace == None:
+      # command line: use ARGV to get args
+      args = vq_parser.parse_args()
+    else:
+      # notebook, ignore ARGV and use dictionary instead
+      args = vq_parser.parse_args(args=[], namespace=namespace)
 
     if args.cudnn_determinism:
        torch.backends.cudnn.deterministic = True
@@ -684,10 +711,16 @@ def main():
         if not os.path.exists('steps'):
             os.mkdir('steps')
 
-    do_init(args)
-    do_run(args)
-    if args.make_video:
-        do_video(args)
+    return args
+
+def main():
+    global z, model, base_size
+
+    vq_parser = setup_parser()
+    settings = process_args(vq_parser)
+
+    do_init(settings)
+    do_run(settings)
 
 if __name__ == '__main__':
     main()
