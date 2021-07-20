@@ -6,9 +6,17 @@ A version of VQGAN-CLIP that runs either at the command line *or* in a notebook 
 
 A repo for running VQGAN+CLIP locally. This started out as a Katherine Crowson VQGAN+CLIP derived Google colab notebook.
 
-Demo notebook: [![Open In Colab][colab-badge]][colab-notebook]
+Original notebook: [![Open In Colab][colab-badge]][colab-notebook]
+
+[colab-notebook]: <https://colab.research.google.com/drive/1ZAus_gn2RhTZWzOWUpPERNC0Q8OhZRTZ>
+[colab-badge]: <https://colab.research.google.com/assets/colab-badge.svg>
+
+Repo notebook: [![Open In Colab][colab-badge]][colab-notebook]
+
 [colab-notebook]: <https://colab.research.google.com/drive/1mwMGjnAmknSNOM1SsIPjsaq1VQ_jV_g0>
 [colab-badge]: <https://colab.research.google.com/assets/colab-badge.svg>
+
+-----
 
 Some example images:
 
