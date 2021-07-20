@@ -1,9 +1,13 @@
-# VQGAN-CLIP Overview
+# clipit Overview
+
+![Alt text](https://raw.githubusercontent.com/vusd/clipit/main/clippyz.png "it looks like you're writing an image")
+
+A version of VQGAN-CLIP that runs either at the command line *or* in a notebook *or* (soon) in batch mode. And has maybe a few extra bits.
+
 A repo for running VQGAN+CLIP locally. This started out as a Katherine Crowson VQGAN+CLIP derived Google colab notebook.
 
-Original notebook: [![Open In Colab][colab-badge]][colab-notebook]
-
-[colab-notebook]: <https://colab.research.google.com/drive/1ZAus_gn2RhTZWzOWUpPERNC0Q8OhZRTZ>
+Demo clipit notebook: [![Open In Colab][colab-badge]][colab-notebook]
+[colab-notebook]: <https://colab.research.google.com/drive/1mwMGjnAmknSNOM1SsIPjsaq1VQ_jV_g0>
 [colab-badge]: <https://colab.research.google.com/assets/colab-badge.svg>
 
 Some example images:
