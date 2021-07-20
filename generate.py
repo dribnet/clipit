@@ -546,10 +546,8 @@ def re_average_z(args):
     cur_z_image = z_to_pil()
     cur_z_image = cur_z_image.convert('RGB')
     if overlay_image_rgba:
-        # print("applying overlay image")
-        cur_z_image.save("before.png")
         cur_z_image.paste(overlay_image_rgba, (0, 0), overlay_image_rgba)
-        cur_z_image.save("after.png")
+        cur_z_image.save(args.output)
     cur_z_image = cur_z_image.resize((gside_X, gside_Y), Image.LANCZOS)
     new_z, *_ = model.encode(TF.to_tensor(cur_z_image).to(device).unsqueeze(0) * 2 - 1)
     # t_dist = F.pairwise_distance(new_z, old_z)
