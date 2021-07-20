@@ -41,6 +41,8 @@ def isnotebook():
         shell = get_ipython().__class__.__name__
         if shell == 'ZMQInteractiveShell':
             return True   # Jupyter notebook or qtconsole
+        elsif shell == 'Shell':
+            return True   # Seems to be what co-lab does
         elif shell == 'TerminalInteractiveShell':
             return False  # Terminal running IPython
         else:
@@ -51,6 +53,8 @@ def isnotebook():
 IS_NOTEBOOK = isnotebook()
 
 if IS_NOTEBOOK:
+    print("Setting up with notebook settings")
+    from IPython import display
     from tqdm.notebook import tqdm
 else:
     from tqdm import tqdm
