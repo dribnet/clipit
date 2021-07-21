@@ -715,6 +715,9 @@ def process_args(vq_parser, namespace=None):
         args.init_weight_cos = args.init_weight
         args.init_weight_dist = args.init_weight
 
+    if args.overlay_every <= 0:
+        args.overlay_every = None
+
     # Make video steps directory
     if args.make_video:
         if not os.path.exists('steps'):
