@@ -513,8 +513,8 @@ def ascend_txt(args):
     
     result = []
 
-    if args.init_weight:
-        cur_loss = F.mse_loss(z, z_orig) * args.init_weight / 2
+    if args.init_weight_dist:
+        cur_loss = F.mse_loss(z, z_orig) * args.init_weight_dist / 2
         result.append(cur_loss)
 
     if args.init_weight_pix:
@@ -666,7 +666,8 @@ def setup_parser():
     vq_parser.add_argument("-ii",   "--init_image", type=str, help="Initial image", default=None, dest='init_image')
     vq_parser.add_argument("-iia",  "--init_image_alpha", type=int, help="Init image alpha (0-255)", default=None, dest='init_image_alpha')
     vq_parser.add_argument("-in",   "--init_noise", type=str, help="Initial noise image (pixels or gradient)", default=None, dest='init_noise')
-    vq_parser.add_argument("-iw",   "--init_weight", type=float, help="Initial weight", default=0., dest='init_weight')
+    vq_parser.add_argument("-iw",   "--init_weight", type=float, help="Initial weight (all types)", default=None, dest='init_weight')
+    vq_parser.add_argument("-iwd",   "--init_weight_dist", type=float, help="Initial weight dist loss", default=0., dest='init_weight_dist')
     vq_parser.add_argument("-iwc",  "--init_weight_cos", type=float, help="Initial weight cos loss", default=0., dest='init_weight_cos')
     vq_parser.add_argument("-iwp",  "--init_weight_pix", type=float, help="Initial weight pix loss", default=0., dest='init_weight_pix')
     vq_parser.add_argument("-m",    "--clip_model", type=str, help="CLIP model", default='ViT-B/32', dest='clip_model')
@@ -708,6 +709,11 @@ def process_args(vq_parser, namespace=None):
     if args.image_prompts:
         args.image_prompts = args.image_prompts.split("|")
         args.image_prompts = [image.strip() for image in args.image_prompts]
+
+    if args.init_weight is not None:
+        args.init_weight_pix = args.init_weight
+        args.init_weight_cos = args.init_weight
+        args.init_weight_dist = args.init_weight
 
     # Make video steps directory
     if args.make_video:
