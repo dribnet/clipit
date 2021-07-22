@@ -25,6 +25,7 @@ torch.backends.cudnn.benchmark = False		# NR: True is a bit faster, but can lead
 from torch_optimizer import DiffGrad, AdamP, RAdam
 
 from CLIP import clip
+import kornia
 import kornia.augmentation as K
 import numpy as np
 import imageio
@@ -165,6 +166,12 @@ def vector_quantize(x, codebook):
     return replace_grad(x_q, x)
 
 
+def spherical_dist_loss(x, y):
+    x = F.normalize(x, dim=-1)
+    y = F.normalize(y, dim=-1)
+    return (x - y).norm(dim=-1).div(2).arcsin().pow(2).mul(2)
+
+
 class Prompt(nn.Module):
     def __init__(self, embed, weight=1., stop=float('-inf')):
         super().__init__()
@@ -192,19 +199,21 @@ class MakeCutouts(nn.Module):
         self.cut_size = cut_size
         self.cutn = cutn
         self.cut_pow = cut_pow
+        self.transforms = None
 
         self.augs = nn.Sequential(
             # K.RandomHorizontalFlip(p=0.5),				# NR: add augmentation options
             # K.RandomVerticalFlip(p=0.5),
             # K.RandomSolarize(0.01, 0.01, p=0.7),
             # K.RandomSharpness(0.3,p=0.4),
-            # K.RandomResizedCrop(size=(self.cut_size,self.cut_size), scale=(0.1,1),  ratio=(0.75,1.333), cropping_mode='resample', p=0.5),
+            # K.RandomResizedCrop(size=(self.cut_size,self.cut_size), scale=(0.1,1),  ratio=(0.75,1.333), cropping_mode='resample', p=0.5, return_transform=True),
             # K.RandomCrop(size=(self.cut_size,self.cut_size), p=0.5),
             
-            K.RandomAffine(degrees=15, translate=0.1, p=0.7, padding_mode='border'),
-            K.RandomPerspective(0.7,p=0.7),
-            K.ColorJitter(hue=0.1, saturation=0.1, p=0.7),
-            K.RandomErasing((.1, .4), (.3, 1/.3), same_on_batch=True, p=0.7),
+            # K.RandomAffine(degrees=15, translate=0.1, p=0.7, padding_mode='border', return_transform=True),
+            K.RandomPerspective(distortion_scale=0.40, p=0.7, return_transform=True),
+            K.RandomResizedCrop(size=(self.cut_size,self.cut_size), scale=(0.15,0.80),  ratio=(0.75,1.333), cropping_mode='resample', p=0.7, return_transform=True),
+            K.ColorJitter(hue=0.03, saturation=0.03, p=0.8, return_transform=True),
+            # K.RandomErasing((.1, .4), (.3, 1/.3), same_on_batch=True, p=0.7, return_transform=True),
             )
             
         self.noise_fac = 0.1
@@ -218,7 +227,7 @@ class MakeCutouts(nn.Module):
         max_size = min(sideX, sideY)
         min_size = min(sideX, sideY, self.cut_size)
         cutouts = []
-        
+
         for _ in range(self.cutn):
             # size = int(torch.rand([])**self.cut_pow * (max_size - min_size) + min_size)
             # offsetx = torch.randint(0, sideX - size + 1, ())
@@ -230,8 +239,23 @@ class MakeCutouts(nn.Module):
             # Pooling
             cutout = (self.av_pool(input) + self.max_pool(input))/2
             cutouts.append(cutout)
-            
-        batch = self.augs(torch.cat(cutouts, dim=0))
+
+        if self.transforms is not None:
+            # print("Cached transforms available, but I'm not smart enough to use them")
+            # print(cutouts.shape)
+            # print(torch.cat(cutouts, dim=0).shape)
+            # print(self.transforms.shape)
+            # batch = kornia.geometry.transform.warp_affine(torch.cat(cutouts, dim=0), self.transforms, (sideY, sideX))
+            # batch = self.transforms @ torch.cat(cutouts, dim=0)
+            batch = kornia.geometry.transform.warp_perspective(torch.cat(cutouts, dim=0), self.transforms, (224, 224))
+            # for i in range(10):
+            #     TF.to_pil_image(batch[i].cpu()).save(f"live_im_{i:02d}.png")
+        else:
+            batch, self.transforms = self.augs(torch.cat(cutouts, dim=0))
+            # for i in range(10):
+            #     TF.to_pil_image(batch[i].cpu()).save(f"cache_im_{i:02d}.png")
+
+        # print(batch.shape, self.transforms.shape)
         
         if self.noise_fac:
             facs = batch.new_empty([self.cutn, 1, 1, 1]).uniform_(0, self.noise_fac)
@@ -273,7 +297,7 @@ def do_init(args):
     global model, opt, perceptor, normalize, make_cutouts
     global z, z_orig, z_min, z_max, init_image_tensor
     global gside_X, gside_Y, overlay_image_rgba
-    global pMs, device
+    global pMs, pImages, device
 
     # Do it (init that is)
     device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
@@ -382,6 +406,7 @@ def do_init(args):
     z.requires_grad_(True)
 
     pMs = []
+    pImages = []
     normalize = transforms.Normalize(mean=[0.48145466, 0.4578275, 0.40821073],
                                       std=[0.26862954, 0.26130258, 0.27577711])
 
@@ -408,9 +433,10 @@ def do_init(args):
         img = Image.open(path)
         pil_image = img.convert('RGB')
         img = resize_image(pil_image, (sideX, sideY))
-        batch = make_cutouts(TF.to_tensor(img).unsqueeze(0).to(device))
-        embed = perceptor.encode_image(normalize(batch)).float()
-        pMs.append(Prompt(embed, weight, stop).to(device))
+        pImages.append(TF.to_tensor(img).unsqueeze(0).to(device))
+        # batch = make_cutouts(TF.to_tensor(img).unsqueeze(0).to(device))
+        # embed = perceptor.encode_image(normalize(batch)).float()
+        # pMs.append(Prompt(embed, weight, stop).to(device))
 
     for seed, weight in zip(args.noise_prompt_seeds, args.noise_prompt_weights):
         gen = torch.Generator().manual_seed(seed)
@@ -476,6 +502,7 @@ normalize = None
 make_cutouts = None
 init_image_tensor = None
 pMs = None
+pImages = None
 gside_X=None
 gside_Y=None
 overlay_image_rgba=None
@@ -507,16 +534,37 @@ def ascend_txt(args):
 
     out = synth(z)
     iii = perceptor.encode_image(normalize(make_cutouts(out))).float()
-    
+
     result = []
+
+    for timg in pImages:
+        # note: this is a half-baked attempt to cache the transforms, currently disabled
+        # make_cutouts.transforms = None
+        batch = make_cutouts(timg)
+        embed = perceptor.encode_image(normalize(batch)).float()
+        # cur_loss = spherical_dist_loss(iii, embed)
+        cur_loss = F.mse_loss(iii, embed)
+
+        # f = iii.reshape(1,-1)
+        # f2 = embed.reshape(1,-1)
+        # y = torch.ones_like(f[0])
+        # cur_loss = F.cosine_embedding_loss(f, f2, y) * args.init_weight_cos
+
+        result.append(cur_loss)
+        # pMs.append(Prompt(embed, weight, stop).to(device))
+
+    make_cutouts.transforms = None
 
     if args.init_weight_dist:
         cur_loss = F.mse_loss(z, z_orig) * args.init_weight_dist / 2
         result.append(cur_loss)
 
     if args.init_weight_pix:
-        cur_loss = F.mse_loss(out, init_image_tensor) * args.init_weight_pix / 2
-        result.append(cur_loss)
+        if init_image_tensor is None:
+            print("OOPS IIT is 0")
+        else:
+            cur_loss = F.mse_loss(out, init_image_tensor) * args.init_weight_pix / 2
+            result.append(cur_loss)
 
     if args.init_weight_cos:
         f = z.reshape(1,-1)
@@ -678,8 +726,8 @@ def setup_parser():
     vq_parser.add_argument("-sd",   "--seed", type=int, help="Seed", default=None, dest='seed')
     vq_parser.add_argument("-opt",  "--optimiser", type=str, help="Optimiser (Adam, AdamW, Adagrad, Adamax, DiffGrad, AdamP or RAdam)", default='Adam', dest='optimiser')
     vq_parser.add_argument("-o",    "--output", type=str, help="Output file", default="output.png", dest='output')
-    vq_parser.add_argument("-vid",  "--video", type=bool, action='store_true',  help="Create video frames?", default=False, dest='make_video')
-    vq_parser.add_argument("-d",    "--deterministic", type=bool, action='store_true', help="Enable cudnn.deterministic?", default=False, dest='cudnn_determinism')
+    vq_parser.add_argument("-vid",  "--video", type=bool, help="Create video frames?", default=False, dest='make_video')
+    vq_parser.add_argument("-d",    "--deterministic", type=bool, help="Enable cudnn.deterministic?", default=False, dest='cudnn_determinism')
 
     return vq_parser    
 
