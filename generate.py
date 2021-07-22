@@ -3,7 +3,6 @@
 
 import argparse
 import math
-from pathlib import Path
 from urllib.request import urlopen
 import sys
 import os
@@ -12,10 +11,8 @@ import os
 # appending the path works with Gumbel, but gives ModuleNotFoundError: No module named 'transformers' for coco etc
 sys.path.append('taming-transformers')
 
-from base64 import b64encode
 from omegaconf import OmegaConf
 from taming.models import cond_transformer, vqgan
-import taming.modules 
 
 import torch
 from torch import nn, optim
@@ -681,8 +678,8 @@ def setup_parser():
     vq_parser.add_argument("-sd",   "--seed", type=int, help="Seed", default=None, dest='seed')
     vq_parser.add_argument("-opt",  "--optimiser", type=str, help="Optimiser (Adam, AdamW, Adagrad, Adamax, DiffGrad, AdamP or RAdam)", default='Adam', dest='optimiser')
     vq_parser.add_argument("-o",    "--output", type=str, help="Output file", default="output.png", dest='output')
-    vq_parser.add_argument("-vid",  "--video", type=bool, help="Create video frames?", default=False, dest='make_video')
-    vq_parser.add_argument("-d",    "--deterministic", type=bool, help="Enable cudnn.deterministic?", default=False, dest='cudnn_determinism')
+    vq_parser.add_argument("-vid",  "--video", type=bool, action='store_true',  help="Create video frames?", default=False, dest='make_video')
+    vq_parser.add_argument("-d",    "--deterministic", type=bool, action='store_true', help="Enable cudnn.deterministic?", default=False, dest='cudnn_determinism')
 
     return vq_parser    
 
