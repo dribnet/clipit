@@ -193,6 +193,23 @@ def parse_prompt(prompt):
     return vals[0], float(vals[1]), float(vals[2])
 
 
+from typing import cast, Dict, List, Optional, Tuple, Union
+
+# override class to get padding_mode
+class MyRandomPerspective(K.RandomPerspective):
+    def apply_transform(
+        self, input: torch.Tensor, params: Dict[str, torch.Tensor], transform: Optional[torch.Tensor] = None
+    ) -> torch.Tensor:
+        _, _, height, width = input.shape
+        transform = cast(torch.Tensor, transform)
+        return kornia.geometry.warp_perspective(
+            input, transform, (height, width),
+             mode=self.resample.name.lower(), align_corners=self.align_corners, padding_mode='border'
+        )
+
+
+
+
 class MakeCutouts(nn.Module):
     def __init__(self, cut_size, cutn, cut_pow=1.):
         super().__init__()
@@ -210,9 +227,9 @@ class MakeCutouts(nn.Module):
             # K.RandomCrop(size=(self.cut_size,self.cut_size), p=0.5),
             
             # K.RandomAffine(degrees=15, translate=0.1, p=0.7, padding_mode='border', return_transform=True),
-            K.RandomPerspective(distortion_scale=0.40, p=0.7, return_transform=True),
+            MyRandomPerspective(distortion_scale=0.40, p=0.7, return_transform=True),
             K.RandomResizedCrop(size=(self.cut_size,self.cut_size), scale=(0.15,0.80),  ratio=(0.75,1.333), cropping_mode='resample', p=0.7, return_transform=True),
-            K.ColorJitter(hue=0.03, saturation=0.03, p=0.8, return_transform=True),
+            K.ColorJitter(hue=0.1, saturation=0.1, p=0.8, return_transform=True),
             # K.RandomErasing((.1, .4), (.3, 1/.3), same_on_batch=True, p=0.7, return_transform=True),
             )
             
@@ -247,13 +264,14 @@ class MakeCutouts(nn.Module):
             # print(self.transforms.shape)
             # batch = kornia.geometry.transform.warp_affine(torch.cat(cutouts, dim=0), self.transforms, (sideY, sideX))
             # batch = self.transforms @ torch.cat(cutouts, dim=0)
-            batch = kornia.geometry.transform.warp_perspective(torch.cat(cutouts, dim=0), self.transforms, (224, 224))
+            batch = kornia.geometry.transform.warp_perspective(torch.cat(cutouts, dim=0), self.transforms,
+                (self.cut_size, self.cut_size), padding_mode='border')
             # for i in range(10):
-            #     TF.to_pil_image(batch[i].cpu()).save(f"live_im_{i:02d}.png")
+            #     TF.to_pil_image(batch[i].cpu()).save(f"cached_im_{i:02d}.png")
         else:
             batch, self.transforms = self.augs(torch.cat(cutouts, dim=0))
             # for i in range(10):
-            #     TF.to_pil_image(batch[i].cpu()).save(f"cache_im_{i:02d}.png")
+            #     TF.to_pil_image(batch[i].cpu()).save(f"live_im_{i:02d}.png")
 
         # print(batch.shape, self.transforms.shape)
         
