@@ -562,6 +562,9 @@ def ascend_txt(args):
         embed = perceptor.encode_image(normalize(batch)).float()
         # cur_loss = spherical_dist_loss(iii, embed)
         cur_loss = F.mse_loss(iii, embed)
+        if args.image_prompt_weight is not None:
+            # print("Downweighting image_prompt by ", args.image_prompt_weight)
+            cur_loss = args.image_prompt_weight * cur_loss
 
         # f = iii.reshape(1,-1)
         # f2 = embed.reshape(1,-1)
@@ -720,6 +723,7 @@ def setup_parser():
     vq_parser.add_argument("-p",    "--prompts", type=str, help="Text prompts", default=[], dest='prompts')
     vq_parser.add_argument("-l",    "--labels", type=str, help="ImageNet labels", default=[], dest='labels')
     vq_parser.add_argument("-ip",   "--image_prompts", type=str, help="Image prompts / target image", default=[], dest='image_prompts')
+    vq_parser.add_argument("-ipw",   "--image_prompt_weight", type=float, help="Weight for image prompt", default=None, dest='image_prompt_weight')
     vq_parser.add_argument("-i",    "--iterations", type=int, help="Number of iterations", default=500, dest='max_iterations')
     vq_parser.add_argument("-se",   "--save_every", type=int, help="Save image iterations", default=50, dest='display_freq')
     vq_parser.add_argument("-ove",  "--overlay_every", type=int, help="Overlay image iterations", default=None, dest='overlay_every')
