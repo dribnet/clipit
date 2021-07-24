@@ -312,25 +312,27 @@ def resize_image(image, out_size):
     return image.resize(size, Image.LANCZOS)
 
 def do_init(args):
-    global model, opt, perceptor, normalize, make_cutouts
+    global model, opt, perceptors, normalize, cutoutsTable, cutoutSizeTable
     global z, z_orig, z_min, z_max, init_image_tensor
     global gside_X, gside_Y, overlay_image_rgba
-    global pMs, pImages, device
+    global pmsTable, pImages, device
 
     # Do it (init that is)
     device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
     model = load_vqgan_model(args.vqgan_config, args.vqgan_checkpoint).to(device)
     jit = True if float(torch.__version__[:3]) < 1.8 else False
-    perceptor = clip.load(args.clip_model, jit=jit)[0].eval().requires_grad_(False).to(device)
-
-    # clock=deepcopy(perceptor.visual.positional_embedding.data)
-    # perceptor.visual.positional_embedding.data = clock/clock.max()
-    # perceptor.visual.positional_embedding.data=clamp_with_grad(clock,0,1)
-
-    cut_size = perceptor.visual.input_resolution
-
     f = 2**(model.decoder.num_resolutions - 1)
-    make_cutouts = MakeCutouts(cut_size, args.cutn, cut_pow=args.cut_pow)
+
+    for clip_model in args.clip_models:
+        perceptor = clip.load(clip_model, jit=jit)[0].eval().requires_grad_(False).to(device)
+        perceptors[clip_model] = perceptor
+
+        # TODO: is one cut_size enought? I hope so.
+        cut_size = perceptor.visual.input_resolution
+        cutoutSizeTable[clip_model] = cut_size
+        if not cut_size in cutoutsTable:    
+            make_cutouts = MakeCutouts(cut_size, args.cutn, cut_pow=args.cut_pow)
+            cutoutsTable[cut_size] = make_cutouts
 
     toksX, toksY = args.size[0] // f, args.size[1] // f
     sideX, sideY = toksX * f, toksY * f
@@ -423,7 +425,9 @@ def do_init(args):
     z_orig = z.clone()
     z.requires_grad_(True)
 
-    pMs = []
+    pmsTable = {}
+    for clip_model in args.clip_models:
+        pmsTable[clip_model] = []
     pImages = []
     normalize = transforms.Normalize(mean=[0.48145466, 0.4578275, 0.40821073],
                                       std=[0.26862954, 0.26130258, 0.27577711])
@@ -431,20 +435,26 @@ def do_init(args):
     # CLIP tokenize/encode
     # NR: Weights / blending
     for prompt in args.prompts:
-        txt, weight, stop = parse_prompt(prompt)
-        embed = perceptor.encode_text(clip.tokenize(txt).to(device)).float()
-        pMs.append(Prompt(embed, weight, stop).to(device))
+        for clip_model in args.clip_models:
+            pMs = pmsTable[clip_model]
+            perceptor = perceptors[clip_model]
+            txt, weight, stop = parse_prompt(prompt)
+            embed = perceptor.encode_text(clip.tokenize(txt).to(device)).float()
+            pMs.append(Prompt(embed, weight, stop).to(device))
 
     for label in args.labels:
-        txt, weight, stop = parse_prompt(label)
-        texts = [template.format(txt) for template in imagenet_templates] #format with class
-        print(f"Tokenizing all of {texts}")
-        texts = clip.tokenize(texts).to(device) #tokenize
-        class_embeddings = perceptor.encode_text(texts) #embed with text encoder
-        class_embeddings /= class_embeddings.norm(dim=-1, keepdim=True)
-        class_embedding = class_embeddings.mean(dim=0)
-        class_embedding /= class_embedding.norm()
-        pMs.append(Prompt(class_embedding.unsqueeze(0), weight, stop).to(device))
+        for clip_model in args.clip_models:
+            pMs = pmsTable[clip_model]
+            perceptor = perceptors[clip_model]
+            txt, weight, stop = parse_prompt(label)
+            texts = [template.format(txt) for template in imagenet_templates] #format with class
+            print(f"Tokenizing all of {texts}")
+            texts = clip.tokenize(texts).to(device) #tokenize
+            class_embeddings = perceptor.encode_text(texts) #embed with text encoder
+            class_embeddings /= class_embeddings.norm(dim=-1, keepdim=True)
+            class_embedding = class_embeddings.mean(dim=0)
+            class_embedding /= class_embedding.norm()
+            pMs.append(Prompt(class_embedding.unsqueeze(0), weight, stop).to(device))
 
     for prompt in args.image_prompts:
         path, weight, stop = parse_prompt(prompt)
@@ -515,11 +525,12 @@ z_min = None
 z_max = None
 opt = None
 model = None
-perceptor = None
+perceptors = {}
 normalize = None
-make_cutouts = None
+cutoutsTable = {}
+cutoutSizeTable = {}
 init_image_tensor = None
-pMs = None
+pmsTable = None
 pImages = None
 gside_X=None
 gside_Y=None
@@ -546,57 +557,74 @@ def checkin(args, i, losses):
         display.display(display.Image(args.output))
 
 def ascend_txt(args):
-    global i, perceptor, normalize, make_cutouts
+    global i, perceptors, normalize, cutoutsTable, cutoutSizeTable
     global z, z_orig, init_image_tensor
-    global pMs
+    global pmsTable
 
     out = synth(z)
-    iii = perceptor.encode_image(normalize(make_cutouts(out))).float()
 
     result = []
 
-    for timg in pImages:
-        # note: this is a half-baked attempt to cache the transforms, currently disabled
-        # make_cutouts.transforms = None
-        batch = make_cutouts(timg)
-        embed = perceptor.encode_image(normalize(batch)).float()
-        # cur_loss = spherical_dist_loss(iii, embed)
-        cur_loss = F.mse_loss(iii, embed)
-        if args.image_prompt_weight is not None:
-            # print("Downweighting image_prompt by ", args.image_prompt_weight)
-            cur_loss = args.image_prompt_weight * cur_loss
+    cur_cutouts = {}
+    for cutoutSize in cutoutsTable:
+        make_cutouts = cutoutsTable[cutoutSize]
+        cur_cutouts[cutoutSize] = make_cutouts(out)
 
-        # f = iii.reshape(1,-1)
-        # f2 = embed.reshape(1,-1)
-        # y = torch.ones_like(f[0])
-        # cur_loss = F.cosine_embedding_loss(f, f2, y) * args.init_weight_cos
+    for clip_model in args.clip_models:
+        pMs = pmsTable[clip_model]
+        perceptor = perceptors[clip_model]
+        cutoutSize = cutoutSizeTable[clip_model]
+        iii = perceptor.encode_image(normalize( cur_cutouts[cutoutSize] )).float()
 
-        result.append(cur_loss)
-        # pMs.append(Prompt(embed, weight, stop).to(device))
+        make_cutouts = cutoutsTable[cutoutSize]
 
-    make_cutouts.transforms = None
+        for timg in pImages:
+            # note: this caches and reuses the transforms - a bit of a hack but it works
+            # (comment out the following line to disable caching)
+            # make_cutouts.transforms = None
+            batch = make_cutouts(timg)
+            embed = perceptor.encode_image(normalize(batch)).float()
 
-    if args.init_weight_dist:
-        cur_loss = F.mse_loss(z, z_orig) * args.init_weight_dist / 2
-        result.append(cur_loss)
+            # TODO: maybe something smarter than MSE loss here
+            # cur_loss = spherical_dist_loss(iii, embed)
+            cur_loss = F.mse_loss(iii, embed)
+            if args.image_prompt_weight is not None:
+                # print("Downweighting image_prompt by ", args.image_prompt_weight)
+                cur_loss = args.image_prompt_weight * cur_loss
 
-    if args.init_weight_pix:
-        if init_image_tensor is None:
-            print("OOPS IIT is 0")
-        else:
-            cur_loss = F.mse_loss(out, init_image_tensor) * args.init_weight_pix / 2
+            # f = iii.reshape(1,-1)
+            # f2 = embed.reshape(1,-1)
+            # y = torch.ones_like(f[0])
+            # cur_loss = F.cosine_embedding_loss(f, f2, y) * args.init_weight_cos
+
             result.append(cur_loss)
 
-    if args.init_weight_cos:
-        f = z.reshape(1,-1)
-        f2 = z_orig.reshape(1,-1)
-        y = torch.ones_like(f[0])
-        cur_loss = F.cosine_embedding_loss(f, f2, y) * args.init_weight_cos
-        result.append(cur_loss)
+        if args.init_weight_dist:
+            cur_loss = F.mse_loss(z, z_orig) * args.init_weight_dist / 2
+            result.append(cur_loss)
 
-    for prompt in pMs:
-        result.append(prompt(iii))
+        if args.init_weight_pix:
+            if init_image_tensor is None:
+                print("OOPS IIT is 0")
+            else:
+                cur_loss = F.mse_loss(out, init_image_tensor) * args.init_weight_pix / 2
+                result.append(cur_loss)
+
+        if args.init_weight_cos:
+            f = z.reshape(1,-1)
+            f2 = z_orig.reshape(1,-1)
+            y = torch.ones_like(f[0])
+            cur_loss = F.cosine_embedding_loss(f, f2, y) * args.init_weight_cos
+            result.append(cur_loss)
+
+        for prompt in pMs:
+            result.append(prompt(iii))
     
+    for cutoutSize in cutoutsTable:
+        # clear the transform "cache"
+        make_cutouts = cutoutsTable[cutoutSize]
+        make_cutouts.transforms = None
+
     if args.make_video:    
         img = np.array(out.mul(255).clamp(0, 255)[0].cpu().detach().numpy().astype(np.uint8))[:,:,:]
         img = np.transpose(img, (1, 2, 0))
@@ -737,7 +765,7 @@ def setup_parser():
     vq_parser.add_argument("-iwd",   "--init_weight_dist", type=float, help="Initial weight dist loss", default=0., dest='init_weight_dist')
     vq_parser.add_argument("-iwc",  "--init_weight_cos", type=float, help="Initial weight cos loss", default=0., dest='init_weight_cos')
     vq_parser.add_argument("-iwp",  "--init_weight_pix", type=float, help="Initial weight pix loss", default=0., dest='init_weight_pix')
-    vq_parser.add_argument("-m",    "--clip_model", type=str, help="CLIP model", default='ViT-B/32', dest='clip_model')
+    vq_parser.add_argument("-m",    "--clip_models", type=str, help="CLIP model", default='ViT-B/32', dest='clip_models')
     vq_parser.add_argument("-conf", "--vqgan_config", type=str, help="VQGAN config", default=f'checkpoints/vqgan_imagenet_f16_16384.yaml', dest='vqgan_config')
     vq_parser.add_argument("-ckpt", "--vqgan_checkpoint", type=str, help="VQGAN checkpoint", default=f'checkpoints/vqgan_imagenet_f16_16384.ckpt', dest='vqgan_checkpoint')
     vq_parser.add_argument("-nps",  "--noise_prompt_seeds", nargs="*", type=int, help="Noise prompt seeds", default=[], dest='noise_prompt_seeds')
@@ -784,6 +812,9 @@ def process_args(vq_parser, namespace=None):
 
     if args.overlay_every is not None and args.overlay_every <= 0:
         args.overlay_every = None
+
+    clip_models = args.clip_models.split(",")
+    args.clip_models = [model.strip() for model in clip_models]
 
     # Make video steps directory
     if args.make_video:
