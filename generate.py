@@ -6,6 +6,8 @@ import math
 from urllib.request import urlopen
 import sys
 import os
+import glob
+from braceexpand import braceexpand
 
 # pip install taming-transformers work with Gumbel, but does works with coco etc
 # appending the path works with Gumbel, but gives ModuleNotFoundError: No module named 'transformers' for coco etc
@@ -56,6 +58,14 @@ if IS_NOTEBOOK:
     from tqdm.notebook import tqdm
 else:
     from tqdm import tqdm
+
+# file helpers
+def real_glob(rglob):
+    glob_list = braceexpand(rglob)
+    files = []
+    for g in glob_list:
+        files = files + glob.glob(g)
+    return sorted(files)
 
 # Functions and classes
 def sinc(x):
@@ -313,7 +323,7 @@ def resize_image(image, out_size):
 
 def do_init(args):
     global model, opt, perceptors, normalize, cutoutsTable, cutoutSizeTable
-    global z, z_orig, z_min, z_max, init_image_tensor
+    global z, z_orig, z_targets, z_min, z_max, init_image_tensor
     global gside_X, gside_Y, overlay_image_rgba
     global pmsTable, pImages, device
 
@@ -422,6 +432,18 @@ def do_init(args):
             overlay_image_rgba.putalpha(args.overlay_alpha)
         overlay_image_rgba.save('overlay_image.png')
 
+    if args.target_images is not None:
+        z_targets = []
+        filelist = real_glob(args.target_images)
+        for target_image in filelist:
+            target_image = Image.open(target_image)
+            target_image_rgb = target_image.convert('RGB')
+            target_image_rgb = target_image_rgb.resize((sideX, sideY), Image.LANCZOS)
+            target_image_tensor = TF.to_tensor(target_image_rgb)
+            target_image_tensor = target_image_tensor.to(device).unsqueeze(0) * 2 - 1
+            z_target, *_ = model.encode(target_image_tensor)
+            z_targets.append(z_target)
+
     z_orig = z.clone()
     z.requires_grad_(True)
 
@@ -521,6 +543,7 @@ def synth(z):
 # dreaded globals (for now)
 z = None
 z_orig = None
+z_targets = None
 z_min = None
 z_max = None
 opt = None
@@ -558,7 +581,7 @@ def checkin(args, i, losses):
 
 def ascend_txt(args):
     global i, perceptors, normalize, cutoutsTable, cutoutSizeTable
-    global z, z_orig, init_image_tensor
+    global z, z_orig, z_targets, init_image_tensor
     global pmsTable
 
     out = synth(z)
@@ -610,6 +633,14 @@ def ascend_txt(args):
         # clear the transform "cache"
         make_cutouts = cutoutsTable[cutoutSize]
         make_cutouts.transforms = None
+
+    # main init_weight uses spherical loss
+    if args.target_images is not None:
+        for z_target in z_targets:
+            f = z.reshape(1,-1)
+            f2 = z_target.reshape(1,-1)
+            cur_loss = spherical_dist_loss(f, f2) * args.target_image_weight
+            result.append(cur_loss)
 
     # main init_weight uses spherical loss
     if args.init_weight:
@@ -762,8 +793,8 @@ def setup_parser():
     # Add the arguments
     vq_parser.add_argument("-p",    "--prompts", type=str, help="Text prompts", default=[], dest='prompts')
     vq_parser.add_argument("-l",    "--labels", type=str, help="ImageNet labels", default=[], dest='labels')
-    vq_parser.add_argument("-ip",   "--image_prompts", type=str, help="Image prompts / target image", default=[], dest='image_prompts')
-    vq_parser.add_argument("-ipw",   "--image_prompt_weight", type=float, help="Weight for image prompt", default=None, dest='image_prompt_weight')
+    vq_parser.add_argument("-ip",   "--image_prompts", type=str, help="Image prompts", default=[], dest='image_prompts')
+    vq_parser.add_argument("-ipw",  "--image_prompt_weight", type=float, help="Weight for image prompt", default=None, dest='image_prompt_weight')
     vq_parser.add_argument("-i",    "--iterations", type=int, help="Number of iterations", default=500, dest='max_iterations')
     vq_parser.add_argument("-se",   "--save_every", type=int, help="Save image iterations", default=50, dest='display_freq')
     vq_parser.add_argument("-ove",  "--overlay_every", type=int, help="Overlay image iterations", default=None, dest='overlay_every')
@@ -773,6 +804,8 @@ def setup_parser():
     vq_parser.add_argument("-ii",   "--init_image", type=str, help="Initial image", default=None, dest='init_image')
     vq_parser.add_argument("-iia",  "--init_image_alpha", type=int, help="Init image alpha (0-255)", default=None, dest='init_image_alpha')
     vq_parser.add_argument("-in",   "--init_noise", type=str, help="Initial noise image (pixels or gradient)", default=None, dest='init_noise')
+    vq_parser.add_argument("-ti",   "--target_images", type=str, help="Target images", default=None, dest='target_images')
+    vq_parser.add_argument("-tiw",  "--target_image_weight", type=float, help="Target images weight", default=1.0, dest='target_image_weight')
     vq_parser.add_argument("-iw",   "--init_weight", type=float, help="Initial weight (main=spherical)", default=None, dest='init_weight')
     vq_parser.add_argument("-iwd",  "--init_weight_dist", type=float, help="Initial weight dist loss", default=0., dest='init_weight_dist')
     vq_parser.add_argument("-iwc",  "--init_weight_cos", type=float, help="Initial weight cos loss", default=0., dest='init_weight_cos')
