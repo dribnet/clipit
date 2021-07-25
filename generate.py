@@ -323,7 +323,7 @@ def resize_image(image, out_size):
 
 def do_init(args):
     global model, opt, perceptors, normalize, cutoutsTable, cutoutSizeTable
-    global z, z_orig, z_targets, z_min, z_max, init_image_tensor
+    global z, z_orig, z_targets, z_labels, z_min, z_max, init_image_tensor
     global gside_X, gside_Y, overlay_image_rgba
     global pmsTable, pImages, device
 
@@ -444,6 +444,25 @@ def do_init(args):
             z_target, *_ = model.encode(target_image_tensor)
             z_targets.append(z_target)
 
+    if args.image_labels is not None:
+        z_labels = []
+        filelist = real_glob(args.image_labels)
+        cur_labels = []
+        for image_label in filelist:
+            image_label = Image.open(image_label)
+            image_label_rgb = image_label.convert('RGB')
+            image_label_rgb = image_label_rgb.resize((sideX, sideY), Image.LANCZOS)
+            image_label_rgb_tensor = TF.to_tensor(image_label_rgb)
+            image_label_rgb_tensor = image_label_rgb_tensor.to(device).unsqueeze(0) * 2 - 1
+            z_label, *_ = model.encode(image_label_rgb_tensor)
+            cur_labels.append(z_label)
+        image_embeddings = torch.stack(cur_labels)
+        print("Processing labels: ", image_embeddings.shape)
+        image_embeddings /= image_embeddings.norm(dim=-1, keepdim=True)
+        image_embeddings = image_embeddings.mean(dim=0)
+        image_embeddings /= image_embeddings.norm()
+        z_labels.append(image_embeddings.unsqueeze(0))
+
     z_orig = z.clone()
     z.requires_grad_(True)
 
@@ -544,6 +563,7 @@ def synth(z):
 z = None
 z_orig = None
 z_targets = None
+z_labels = None
 z_min = None
 z_max = None
 opt = None
@@ -581,7 +601,7 @@ def checkin(args, i, losses):
 
 def ascend_txt(args):
     global i, perceptors, normalize, cutoutsTable, cutoutSizeTable
-    global z, z_orig, z_targets, init_image_tensor
+    global z, z_orig, z_targets, z_labels, init_image_tensor
     global pmsTable
 
     out = synth(z)
@@ -640,6 +660,13 @@ def ascend_txt(args):
             f = z.reshape(1,-1)
             f2 = z_target.reshape(1,-1)
             cur_loss = spherical_dist_loss(f, f2) * args.target_image_weight
+            result.append(cur_loss)
+
+    if args.image_labels is not None:
+        for z_label in z_labels:
+            f = z.reshape(1,-1)
+            f2 = z_label.reshape(1,-1)
+            cur_loss = spherical_dist_loss(f, f2) * args.image_label_weight
             result.append(cur_loss)
 
     # main init_weight uses spherical loss
@@ -795,6 +822,8 @@ def setup_parser():
     vq_parser.add_argument("-l",    "--labels", type=str, help="ImageNet labels", default=[], dest='labels')
     vq_parser.add_argument("-ip",   "--image_prompts", type=str, help="Image prompts", default=[], dest='image_prompts')
     vq_parser.add_argument("-ipw",  "--image_prompt_weight", type=float, help="Weight for image prompt", default=None, dest='image_prompt_weight')
+    vq_parser.add_argument("-il",   "--image_labels", type=str, help="Image prompts", default=None, dest='image_labels')
+    vq_parser.add_argument("-ilw",  "--image_label_weight", type=float, help="Weight for image prompt", default=1.0, dest='image_label_weight')
     vq_parser.add_argument("-i",    "--iterations", type=int, help="Number of iterations", default=500, dest='max_iterations')
     vq_parser.add_argument("-se",   "--save_every", type=int, help="Save image iterations", default=50, dest='display_freq')
     vq_parser.add_argument("-ove",  "--overlay_every", type=int, help="Overlay image iterations", default=None, dest='overlay_every')
