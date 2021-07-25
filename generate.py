@@ -393,7 +393,7 @@ def do_init(args):
             init_image_rgb = init_image.convert('RGB')
             init_image_rgb = init_image_rgb.resize((sideX, sideY), Image.LANCZOS)
             init_image_tensor = TF.to_tensor(init_image_rgb)
-            init_image_tensor = init_image_tensor.to(device).unsqueeze(0) * 2 - 1
+            init_image_tensor = init_image_tensor.to(device).unsqueeze(0)
 
             # this version gets overlaid on the background (noise)
             init_image_rgba = init_image.convert('RGBA')
@@ -624,10 +624,12 @@ def ascend_txt(args):
 
         for timg in pImages:
             # note: this caches and reuses the transforms - a bit of a hack but it works
-            # (comment out the following line to disable caching)
+
+            if args.image_prompt_shuffle:
+                # print("Disabling cached transforms")
+                make_cutouts.transforms = None
 
             # this is the old method which uses mse_loss
-            # make_cutouts.transforms = None
             # batch = make_cutouts(timg)
             # embed = perceptor.encode_image(normalize(batch)).float()
             # cur_loss = F.mse_loss(iii, embed)
@@ -685,7 +687,13 @@ def ascend_txt(args):
         if init_image_tensor is None:
             print("OOPS IIT is 0")
         else:
-            cur_loss = F.mse_loss(out, init_image_tensor) * args.init_weight_pix / 2
+            # TF.to_pil_image(out[0].cpu()).save(f"out_1.png")
+            # TF.to_pil_image(init_image_tensor[0].cpu()).save(f"init_1.png")
+            # print(out.shape)
+            # print(init_image_tensor.shape)
+            # print(out[0][0])
+            # print(init_image_tensor[0][0])
+            cur_loss = F.l1_loss(out, init_image_tensor) * args.init_weight_pix / 2
             result.append(cur_loss)
 
     if args.init_weight_cos:
@@ -822,6 +830,7 @@ def setup_parser():
     vq_parser.add_argument("-l",    "--labels", type=str, help="ImageNet labels", default=[], dest='labels')
     vq_parser.add_argument("-ip",   "--image_prompts", type=str, help="Image prompts", default=[], dest='image_prompts')
     vq_parser.add_argument("-ipw",  "--image_prompt_weight", type=float, help="Weight for image prompt", default=None, dest='image_prompt_weight')
+    vq_parser.add_argument("-ips",  "--image_prompt_shuffle", type=bool, help="Shuffle image prompts", default=False, dest='image_prompt_shuffle')
     vq_parser.add_argument("-il",   "--image_labels", type=str, help="Image prompts", default=None, dest='image_labels')
     vq_parser.add_argument("-ilw",  "--image_label_weight", type=float, help="Weight for image prompt", default=1.0, dest='image_label_weight')
     vq_parser.add_argument("-i",    "--iterations", type=int, help="Number of iterations", default=500, dest='max_iterations')
