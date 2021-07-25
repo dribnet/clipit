@@ -572,6 +572,7 @@ def ascend_txt(args):
 
     for clip_model in args.clip_models:
         pMs = pmsTable[clip_model]
+        transient_pMs = []
         perceptor = perceptors[clip_model]
         cutoutSize = cutoutSizeTable[clip_model]
         iii = perceptor.encode_image(normalize( cur_cutouts[cutoutSize] )).float()
@@ -581,49 +582,60 @@ def ascend_txt(args):
         for timg in pImages:
             # note: this caches and reuses the transforms - a bit of a hack but it works
             # (comment out the following line to disable caching)
+
+            # this is the old method which uses mse_loss
             # make_cutouts.transforms = None
+            # batch = make_cutouts(timg)
+            # embed = perceptor.encode_image(normalize(batch)).float()
+            # cur_loss = F.mse_loss(iii, embed)
+            # if args.image_prompt_weight is not None:
+            #     # print("Downweighting image_prompt by ", args.image_prompt_weight)
+            #     cur_loss = args.image_prompt_weight * cur_loss
+            # result.append(cur_loss)
+
+            # new way builds throwaway Prompts
             batch = make_cutouts(timg)
             embed = perceptor.encode_image(normalize(batch)).float()
-
-            # TODO: maybe something smarter than MSE loss here
-            # cur_loss = spherical_dist_loss(iii, embed)
-            cur_loss = F.mse_loss(iii, embed)
             if args.image_prompt_weight is not None:
-                # print("Downweighting image_prompt by ", args.image_prompt_weight)
-                cur_loss = args.image_prompt_weight * cur_loss
-
-            # f = iii.reshape(1,-1)
-            # f2 = embed.reshape(1,-1)
-            # y = torch.ones_like(f[0])
-            # cur_loss = F.cosine_embedding_loss(f, f2, y) * args.init_weight_cos
-
-            result.append(cur_loss)
-
-        if args.init_weight_dist:
-            cur_loss = F.mse_loss(z, z_orig) * args.init_weight_dist / 2
-            result.append(cur_loss)
-
-        if args.init_weight_pix:
-            if init_image_tensor is None:
-                print("OOPS IIT is 0")
+                transient_pMs.append(Prompt(embed, args.image_prompt_weight).to(device))
             else:
-                cur_loss = F.mse_loss(out, init_image_tensor) * args.init_weight_pix / 2
-                result.append(cur_loss)
+                transient_pMs.append(Prompt(embed).to(device))
 
-        if args.init_weight_cos:
-            f = z.reshape(1,-1)
-            f2 = z_orig.reshape(1,-1)
-            y = torch.ones_like(f[0])
-            cur_loss = F.cosine_embedding_loss(f, f2, y) * args.init_weight_cos
-            result.append(cur_loss)
-
+        for prompt in transient_pMs:
+            result.append(prompt(iii))
         for prompt in pMs:
             result.append(prompt(iii))
-    
+
     for cutoutSize in cutoutsTable:
         # clear the transform "cache"
         make_cutouts = cutoutsTable[cutoutSize]
         make_cutouts.transforms = None
+
+    # main init_weight uses spherical loss
+    if args.init_weight:
+        f = z.reshape(1,-1)
+        f2 = z_orig.reshape(1,-1)
+        cur_loss = spherical_dist_loss(f, f2) * args.init_weight
+        result.append(cur_loss)
+
+    # these three init_weight variants offer mse_loss, mse_loss in pixel space, and cos loss
+    if args.init_weight_dist:
+        cur_loss = F.mse_loss(z, z_orig) * args.init_weight_dist / 2
+        result.append(cur_loss)
+
+    if args.init_weight_pix:
+        if init_image_tensor is None:
+            print("OOPS IIT is 0")
+        else:
+            cur_loss = F.mse_loss(out, init_image_tensor) * args.init_weight_pix / 2
+            result.append(cur_loss)
+
+    if args.init_weight_cos:
+        f = z.reshape(1,-1)
+        f2 = z_orig.reshape(1,-1)
+        y = torch.ones_like(f[0])
+        cur_loss = F.cosine_embedding_loss(f, f2, y) * args.init_weight_cos
+        result.append(cur_loss)
 
     if args.make_video:    
         img = np.array(out.mul(255).clamp(0, 255)[0].cpu().detach().numpy().astype(np.uint8))[:,:,:]
@@ -761,8 +773,8 @@ def setup_parser():
     vq_parser.add_argument("-ii",   "--init_image", type=str, help="Initial image", default=None, dest='init_image')
     vq_parser.add_argument("-iia",  "--init_image_alpha", type=int, help="Init image alpha (0-255)", default=None, dest='init_image_alpha')
     vq_parser.add_argument("-in",   "--init_noise", type=str, help="Initial noise image (pixels or gradient)", default=None, dest='init_noise')
-    vq_parser.add_argument("-iw",   "--init_weight", type=float, help="Initial weight (all types)", default=None, dest='init_weight')
-    vq_parser.add_argument("-iwd",   "--init_weight_dist", type=float, help="Initial weight dist loss", default=0., dest='init_weight_dist')
+    vq_parser.add_argument("-iw",   "--init_weight", type=float, help="Initial weight (main=spherical)", default=None, dest='init_weight')
+    vq_parser.add_argument("-iwd",  "--init_weight_dist", type=float, help="Initial weight dist loss", default=0., dest='init_weight_dist')
     vq_parser.add_argument("-iwc",  "--init_weight_cos", type=float, help="Initial weight cos loss", default=0., dest='init_weight_cos')
     vq_parser.add_argument("-iwp",  "--init_weight_pix", type=float, help="Initial weight pix loss", default=0., dest='init_weight_pix')
     vq_parser.add_argument("-m",    "--clip_models", type=str, help="CLIP model", default='ViT-B/32', dest='clip_models')
@@ -805,10 +817,11 @@ def process_args(vq_parser, namespace=None):
         args.image_prompts = args.image_prompts.split("|")
         args.image_prompts = [image.strip() for image in args.image_prompts]
 
-    if args.init_weight is not None:
-        args.init_weight_pix = args.init_weight
-        args.init_weight_cos = args.init_weight
-        args.init_weight_dist = args.init_weight
+    # legacy "spread mode" removed
+    # if args.init_weight is not None:
+    #     args.init_weight_pix = args.init_weight
+    #     args.init_weight_cos = args.init_weight
+    #     args.init_weight_dist = args.init_weight
 
     if args.overlay_every is not None and args.overlay_every <= 0:
         args.overlay_every = None
