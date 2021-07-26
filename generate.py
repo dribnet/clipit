@@ -766,11 +766,16 @@ def do_run(args):
     try:
         with tqdm() as pbar:
             while True:
-                train(args, i)
-                if i == args.max_iterations:
-                    break
-                i += 1
-                pbar.update()
+                try:
+                    train(args, i)
+                    if i == args.max_iterations:
+                        break
+                    i += 1
+                    pbar.update()
+                except RuntimeError as e:
+                    print("Oops: runtime error: ", e)
+                    print("Try reducing --num-cuts to save memory")
+                    raise e
     except KeyboardInterrupt:
         pass
 
@@ -833,28 +838,32 @@ def setup_parser():
     vq_parser.add_argument("-ips",  "--image_prompt_shuffle", type=bool, help="Shuffle image prompts", default=False, dest='image_prompt_shuffle')
     vq_parser.add_argument("-il",   "--image_labels", type=str, help="Image prompts", default=None, dest='image_labels')
     vq_parser.add_argument("-ilw",  "--image_label_weight", type=float, help="Weight for image prompt", default=1.0, dest='image_label_weight')
-    vq_parser.add_argument("-i",    "--iterations", type=int, help="Number of iterations", default=500, dest='max_iterations')
+    vq_parser.add_argument("-i",    "--iterations", type=int, help="Number of iterations", default=None, dest='max_iterations')
     vq_parser.add_argument("-se",   "--save_every", type=int, help="Save image iterations", default=50, dest='display_freq')
     vq_parser.add_argument("-ove",  "--overlay_every", type=int, help="Overlay image iterations", default=None, dest='overlay_every')
     vq_parser.add_argument("-ovi",  "--overlay_image", type=str, help="Overlay image (if not init)", default=None, dest='overlay_image')
-    vq_parser.add_argument("-ova",  "--overlay_alpha", type=int, help="Overlay alpha (0-255)", default=None, dest='overlay_alpha')
-    vq_parser.add_argument("-s",    "--size", nargs=2, type=int, help="Image size (width height)", default=[512,512], dest='size')
+    vq_parser.add_argument("-qua",  "--quality", type=str, help="draft, normal, best", default="normal", dest='quality')
+    vq_parser.add_argument("-asp",  "--aspect", type=str, help="widescreen, square", default="widescreen", dest='aspect')
+    vq_parser.add_argument("-ezs",  "--ezsize", type=str, help="small, medium, large", default=None, dest='ezsize')
+    vq_parser.add_argument("-sca",  "--scale", type=int, help="Overlay alpha (0-255)", default=None, dest='scale')
+    vq_parser.add_argument("-ova",  "--overlay_alpha", type=int, help="Overlay alpha (0-255)", default=None, dest='overlay_alpha')    
+    vq_parser.add_argument("-s",    "--size", nargs=2, type=int, help="Image size (width height)", default=None, dest='size')
     vq_parser.add_argument("-ii",   "--init_image", type=str, help="Initial image", default=None, dest='init_image')
     vq_parser.add_argument("-iia",  "--init_image_alpha", type=int, help="Init image alpha (0-255)", default=None, dest='init_image_alpha')
-    vq_parser.add_argument("-in",   "--init_noise", type=str, help="Initial noise image (pixels or gradient)", default=None, dest='init_noise')
+    vq_parser.add_argument("-in",   "--init_noise", type=str, help="Initial noise image (pixels or gradient)", default="pixels", dest='init_noise')
     vq_parser.add_argument("-ti",   "--target_images", type=str, help="Target images", default=None, dest='target_images')
     vq_parser.add_argument("-tiw",  "--target_image_weight", type=float, help="Target images weight", default=1.0, dest='target_image_weight')
     vq_parser.add_argument("-iw",   "--init_weight", type=float, help="Initial weight (main=spherical)", default=None, dest='init_weight')
     vq_parser.add_argument("-iwd",  "--init_weight_dist", type=float, help="Initial weight dist loss", default=0., dest='init_weight_dist')
     vq_parser.add_argument("-iwc",  "--init_weight_cos", type=float, help="Initial weight cos loss", default=0., dest='init_weight_cos')
     vq_parser.add_argument("-iwp",  "--init_weight_pix", type=float, help="Initial weight pix loss", default=0., dest='init_weight_pix')
-    vq_parser.add_argument("-m",    "--clip_models", type=str, help="CLIP model", default='ViT-B/32', dest='clip_models')
+    vq_parser.add_argument("-m",    "--clip_models", type=str, help="CLIP model", default=None, dest='clip_models')
     vq_parser.add_argument("-conf", "--vqgan_config", type=str, help="VQGAN config", default=f'checkpoints/vqgan_imagenet_f16_16384.yaml', dest='vqgan_config')
     vq_parser.add_argument("-ckpt", "--vqgan_checkpoint", type=str, help="VQGAN checkpoint", default=f'checkpoints/vqgan_imagenet_f16_16384.ckpt', dest='vqgan_checkpoint')
     vq_parser.add_argument("-nps",  "--noise_prompt_seeds", nargs="*", type=int, help="Noise prompt seeds", default=[], dest='noise_prompt_seeds')
     vq_parser.add_argument("-npw",  "--noise_prompt_weights", nargs="*", type=float, help="Noise prompt weights", default=[], dest='noise_prompt_weights')
-    vq_parser.add_argument("-lr",   "--learning_rate", type=float, help="Learning rate", default=0.1, dest='step_size')
-    vq_parser.add_argument("-cuts", "--num_cuts", type=int, help="Number of cuts", default=32, dest='cutn')
+    vq_parser.add_argument("-lr",   "--learning_rate", type=float, help="Learning rate", default=0.2, dest='step_size')
+    vq_parser.add_argument("-cuts", "--num_cuts", type=int, help="Number of cuts", default=None, dest='cutn')
     vq_parser.add_argument("-cutp", "--cut_power", type=float, help="Cut power", default=1., dest='cut_pow')
     vq_parser.add_argument("-sd",   "--seed", type=int, help="Seed", default=None, dest='seed')
     vq_parser.add_argument("-opt",  "--optimiser", type=str, help="Optimiser (Adam, AdamW, Adagrad, Adamax, DiffGrad, AdamP or RAdam)", default='Adam', dest='optimiser')
@@ -863,6 +872,9 @@ def setup_parser():
     vq_parser.add_argument("-d",    "--deterministic", type=bool, help="Enable cudnn.deterministic?", default=False, dest='cudnn_determinism')
 
     return vq_parser    
+
+square_size = [144, 144]
+widescreen_size = [200, 112]  # at the small size this becomes 192,112
 
 def process_args(vq_parser, namespace=None):
     if namespace == None:
@@ -874,6 +886,73 @@ def process_args(vq_parser, namespace=None):
 
     if args.cudnn_determinism:
        torch.backends.cudnn.deterministic = True
+
+    quality_to_clip_models_table = {
+        'draft': 'ViT-B/32',
+        'normal': 'ViT-B/32,ViT-B/16',
+        'best': 'RN50x4,ViT-B/32,ViT-B/16'
+    }
+    quality_to_max_iterations_table = {
+        'draft': 200,
+        'normal': 350,
+        'best': 500
+    }
+    quality_to_ezsize_table = {
+        'draft': 'small',
+        'normal': 'medium',
+        'best': 'large'
+    }
+    # this should be replaced with logic that does somethings
+    # smart based on available memory (eg: size, num_models, etc)
+    quality_to_cutn_table = {
+        'draft': 40,
+        'normal': 40,
+        'best': 40
+    }
+
+    if args.quality not in quality_to_clip_models_table:
+        print("Qualitfy setting not understood, aborting -> ", argz.quality)
+        exit(1)
+
+    if args.clip_models is None:
+        args.clip_models = quality_to_clip_models_table[args.quality]
+    if args.max_iterations is None:
+        args.max_iterations = quality_to_max_iterations_table[args.quality]
+    if args.cutn is None:
+        args.cutn = quality_to_cutn_table[args.quality]
+    if args.ezsize is None:
+        args.ezsize = quality_to_ezsize_table[args.quality]
+
+    size_to_scale_table = {
+        'small': 1,
+        'medium': 2,
+        'large': 4
+    }
+    aspect_to_size_table = {
+        'square': [150, 150],
+        'widescreen': [200, 112]
+    }
+
+    # determine size if not set
+    if args.size is None:
+        size_scale = args.scale
+        if size_scale is None:
+            if args.ezsize in size_to_scale_table:
+                size_scale = size_to_scale_table[args.ezsize]
+            else:
+                print("EZ Size not understood, aborting -> ", argz.ezsize)
+                exit(1)
+        if args.aspect in aspect_to_size_table:
+            base_size = aspect_to_size_table[args.aspect]
+            base_width = size_scale * base_size[0]
+            base_height = size_scale * base_size[1]
+            args.size = [base_width, base_height]
+        else:
+            print("aspect not understood, aborting -> ", argz.aspect)
+            exit(1)
+
+    if args.init_noise.lower() == "none":
+        args.init_noise = None
 
     # Split text prompts using the pipe character
     if args.prompts:
