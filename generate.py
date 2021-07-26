@@ -871,7 +871,7 @@ def setup_parser():
     vq_parser.add_argument("-qua",  "--quality", type=str, help="draft, normal, best", default="normal", dest='quality')
     vq_parser.add_argument("-asp",  "--aspect", type=str, help="widescreen, square", default="widescreen", dest='aspect')
     vq_parser.add_argument("-ezs",  "--ezsize", type=str, help="small, medium, large", default=None, dest='ezsize')
-    vq_parser.add_argument("-sca",  "--scale", type=int, help="Overlay alpha (0-255)", default=None, dest='scale')
+    vq_parser.add_argument("-sca",  "--scale", type=int, help="scale (instead of ezsize)", default=None, dest='scale')
     vq_parser.add_argument("-ova",  "--overlay_alpha", type=int, help="Overlay alpha (0-255)", default=None, dest='overlay_alpha')    
     vq_parser.add_argument("-s",    "--size", nargs=2, type=int, help="Image size (width height)", default=None, dest='size')
     vq_parser.add_argument("-ii",   "--init_image", type=str, help="Initial image", default=None, dest='init_image')
@@ -916,23 +916,27 @@ def process_args(vq_parser, namespace=None):
     quality_to_clip_models_table = {
         'draft': 'ViT-B/32',
         'normal': 'ViT-B/32,ViT-B/16',
+        'better': 'RN50,ViT-B/32,ViT-B/16',
         'best': 'RN50x4,ViT-B/32,ViT-B/16'
     }
     quality_to_max_iterations_table = {
         'draft': 200,
         'normal': 350,
+        'better': 500,
         'best': 500
     }
-    quality_to_ezsize_table = {
-        'draft': 'small',
-        'normal': 'medium',
-        'best': 'large'
+    quality_to_scale_table = {
+        'draft': 1,
+        'normal': 2,
+        'better': 3,
+        'best': 4
     }
     # this should be replaced with logic that does somethings
     # smart based on available memory (eg: size, num_models, etc)
     quality_to_cutn_table = {
         'draft': 40,
         'normal': 40,
+        'better': 40,
         'best': 40
     }
 
@@ -946,8 +950,8 @@ def process_args(vq_parser, namespace=None):
         args.max_iterations = quality_to_max_iterations_table[args.quality]
     if args.cutn is None:
         args.cutn = quality_to_cutn_table[args.quality]
-    if args.ezsize is None:
-        args.ezsize = quality_to_ezsize_table[args.quality]
+    if args.ezsize is None and args.scale is None:
+        args.scale = quality_to_scale_table[args.quality]
 
     size_to_scale_table = {
         'small': 1,
