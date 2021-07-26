@@ -4,10 +4,15 @@
 
 A version of VQGAN-CLIP that runs either at the command line *or* in a notebook *or* (soon) in batch mode. And has maybe a few extra bits.
 
-Repo notebook: [![Open In Colab][colab-badge]][colab-notebook]
+For now, please ignore this README and instead checkout [THE DEMO NOTEBOOKS](demos/README.md)
 
-[colab-notebook]: <https://colab.research.google.com/drive/1mwMGjnAmknSNOM1SsIPjsaq1VQ_jV_g0>
-[colab-badge]: <https://colab.research.google.com/assets/colab-badge.svg>
+-----
+
+## EVERYTHING BELOW IS OUT OF DATE.
+
+-----
+
+### Please ignore for now
 
 -----
 
