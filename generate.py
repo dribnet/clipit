@@ -25,6 +25,7 @@ torch.backends.cudnn.benchmark = False		# NR: True is a bit faster, but can lead
 #torch.use_deterministic_algorithms(True)		# NR: grid_sampler_2d_backward_cuda does not have a deterministic implementation
 
 from torch_optimizer import DiffGrad, AdamP, RAdam
+from perlin_numpy import generate_fractal_noise_2d
 
 from CLIP import clip
 import kornia
@@ -34,6 +35,9 @@ import imageio
 
 from PIL import ImageFile, Image, PngImagePlugin
 ImageFile.LOAD_TRUNCATED_IMAGES = True
+
+# or 'border'
+global_padding_mode = 'reflection'
 
 # https://stackoverflow.com/a/39662359
 def isnotebook():
@@ -89,9 +93,31 @@ def ramp(ratio, width):
 
 
 # NR: Testing with different intital images
-def random_noise_image(w,h):
+def old_random_noise_image(w,h):
     random_image = Image.fromarray(np.random.randint(0,255,(w,h,3),dtype=np.dtype('uint8')))
     return random_image
+
+def NormalizeData(data):
+    return (data - np.min(data)) / (np.max(data) - np.min(data))
+
+def random_noise_image(w,h):
+    # scale up roughly as power of 2
+    if (w>1024 or h>1024):
+        side, octp = 2048, 7
+    elif (w>512 or h>512):
+        side, octp = 1024, 6
+    elif (w>256 or h>256):
+        side, octp = 512, 5
+    else:
+        side, octp = 256, 4
+
+    nr = NormalizeData(generate_fractal_noise_2d((side, side), (32, 32), octp))
+    ng = NormalizeData(generate_fractal_noise_2d((side, side), (32, 32), octp))
+    nb = NormalizeData(generate_fractal_noise_2d((side, side), (32, 32), octp))
+    stack = np.dstack((nr,ng,nb))
+    substack = stack[:h, :w, :]
+    im = Image.fromarray((255.9 * stack).astype('uint8'))
+    return im
 
 # testing
 def gradient_2d(start, stop, width, height, is_horizontal):
@@ -214,7 +240,7 @@ class MyRandomPerspective(K.RandomPerspective):
         transform = cast(torch.Tensor, transform)
         return kornia.geometry.warp_perspective(
             input, transform, (height, width),
-             mode=self.resample.name.lower(), align_corners=self.align_corners, padding_mode='border'
+             mode=self.resample.name.lower(), align_corners=self.align_corners, padding_mode=global_padding_mode
         )
 
 
@@ -275,7 +301,7 @@ class MakeCutouts(nn.Module):
             # batch = kornia.geometry.transform.warp_affine(torch.cat(cutouts, dim=0), self.transforms, (sideY, sideX))
             # batch = self.transforms @ torch.cat(cutouts, dim=0)
             batch = kornia.geometry.transform.warp_perspective(torch.cat(cutouts, dim=0), self.transforms,
-                (self.cut_size, self.cut_size), padding_mode='border')
+                (self.cut_size, self.cut_size), padding_mode=global_padding_mode)
             # for i in range(10):
             #     TF.to_pil_image(batch[i].cpu()).save(f"cached_im_{i:02d}.png")
         else:
@@ -849,7 +875,7 @@ def setup_parser():
     vq_parser.add_argument("-ova",  "--overlay_alpha", type=int, help="Overlay alpha (0-255)", default=None, dest='overlay_alpha')    
     vq_parser.add_argument("-s",    "--size", nargs=2, type=int, help="Image size (width height)", default=None, dest='size')
     vq_parser.add_argument("-ii",   "--init_image", type=str, help="Initial image", default=None, dest='init_image')
-    vq_parser.add_argument("-iia",  "--init_image_alpha", type=int, help="Init image alpha (0-255)", default=None, dest='init_image_alpha')
+    vq_parser.add_argument("-iia",  "--init_image_alpha", type=int, help="Init image alpha (0-255)", default=200, dest='init_image_alpha')
     vq_parser.add_argument("-in",   "--init_noise", type=str, help="Initial noise image (pixels or gradient)", default="pixels", dest='init_noise')
     vq_parser.add_argument("-ti",   "--target_images", type=str, help="Target images", default=None, dest='target_images')
     vq_parser.add_argument("-tiw",  "--target_image_weight", type=float, help="Target images weight", default=1.0, dest='target_image_weight')
