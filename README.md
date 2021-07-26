@@ -2,6 +2,8 @@
 
 ![Alt text](https://raw.githubusercontent.com/vusd/clipit/main/clippyz.png "it looks like you're writing an image")
 
+Here's the curent default notebook: [![Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/dribnet/clipit/blob/master/demos/Moar_Settings.ipynb)
+
 A version of VQGAN-CLIP that runs either at the command line *or* in a notebook *or* (soon) in batch mode. And has maybe a few extra bits.
 
 For now, please ignore this README and instead checkout [THE DEMO NOTEBOOKS](demos/README.md)
