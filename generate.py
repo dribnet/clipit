@@ -408,7 +408,7 @@ def do_init(args):
         cut_size = perceptor.visual.input_resolution
         cutoutSizeTable[clip_model] = cut_size
         if not cut_size in cutoutsTable:    
-            make_cutouts = MakeCutouts(cut_size, args.cutn, cut_pow=args.cut_pow)
+            make_cutouts = MakeCutouts(cut_size, args.num_cuts, cut_pow=args.cut_pow)
             cutoutsTable[cut_size] = make_cutouts
 
     toksX, toksY = args.size[0] // f, args.size[1] // f
@@ -840,7 +840,7 @@ def do_run(args):
             while True:
                 try:
                     train(args, i)
-                    if i == args.max_iterations:
+                    if i == args.iterations:
                         break
                     i += 1
                     pbar.update()
@@ -913,7 +913,7 @@ def setup_parser():
     vq_parser.add_argument("-ips",  "--image_prompt_shuffle", type=bool, help="Shuffle image prompts", default=False, dest='image_prompt_shuffle')
     vq_parser.add_argument("-il",   "--image_labels", type=str, help="Image prompts", default=None, dest='image_labels')
     vq_parser.add_argument("-ilw",  "--image_label_weight", type=float, help="Weight for image prompt", default=1.0, dest='image_label_weight')
-    vq_parser.add_argument("-i",    "--iterations", type=int, help="Number of iterations", default=None, dest='max_iterations')
+    vq_parser.add_argument("-i",    "--iterations", type=int, help="Number of iterations", default=None, dest='iterations')
     vq_parser.add_argument("-se",   "--save_every", type=int, help="Save image iterations", default=50, dest='display_freq')
     vq_parser.add_argument("-ove",  "--overlay_every", type=int, help="Overlay image iterations", default=None, dest='overlay_every')
     vq_parser.add_argument("-ovi",  "--overlay_image", type=str, help="Overlay image (if not init)", default=None, dest='overlay_image')
@@ -939,7 +939,7 @@ def setup_parser():
     vq_parser.add_argument("-nps",  "--noise_prompt_seeds", nargs="*", type=int, help="Noise prompt seeds", default=[], dest='noise_prompt_seeds')
     vq_parser.add_argument("-npw",  "--noise_prompt_weights", nargs="*", type=float, help="Noise prompt weights", default=[], dest='noise_prompt_weights')
     vq_parser.add_argument("-lr",   "--learning_rate", type=float, help="Learning rate", default=0.2, dest='step_size')
-    vq_parser.add_argument("-cuts", "--num_cuts", type=int, help="Number of cuts", default=None, dest='cutn')
+    vq_parser.add_argument("-cuts", "--num_cuts", type=int, help="Number of cuts", default=None, dest='num_cuts')
     vq_parser.add_argument("-cutp", "--cut_power", type=float, help="Cut power", default=1., dest='cut_pow')
     vq_parser.add_argument("-sd",   "--seed", type=int, help="Seed", default=None, dest='seed')
     vq_parser.add_argument("-opt",  "--optimiser", type=str, help="Optimiser (Adam, AdamW, Adagrad, Adamax, DiffGrad, AdamP or RAdam)", default='Adam', dest='optimiser')
@@ -969,7 +969,7 @@ def process_args(vq_parser, namespace=None):
         'better': 'RN50,ViT-B/32,ViT-B/16',
         'best': 'RN50x4,ViT-B/32,ViT-B/16'
     }
-    quality_to_max_iterations_table = {
+    quality_to_iterations_table = {
         'draft': 200,
         'normal': 350,
         'better': 500,
@@ -983,7 +983,7 @@ def process_args(vq_parser, namespace=None):
     }
     # this should be replaced with logic that does somethings
     # smart based on available memory (eg: size, num_models, etc)
-    quality_to_cutn_table = {
+    quality_to_num_cuts_table = {
         'draft': 40,
         'normal': 40,
         'better': 40,
@@ -996,10 +996,10 @@ def process_args(vq_parser, namespace=None):
 
     if args.clip_models is None:
         args.clip_models = quality_to_clip_models_table[args.quality]
-    if args.max_iterations is None:
-        args.max_iterations = quality_to_max_iterations_table[args.quality]
-    if args.cutn is None:
-        args.cutn = quality_to_cutn_table[args.quality]
+    if args.iterations is None:
+        args.iterations = quality_to_iterations_table[args.quality]
+    if args.num_cuts is None:
+        args.num_cuts = quality_to_num_cuts_table[args.quality]
     if args.ezsize is None and args.scale is None:
         args.scale = quality_to_scale_table[args.quality]
 
