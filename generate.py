@@ -375,11 +375,10 @@ def resize_image(image, out_size):
 
 def wget_file(url, out):
     try:
-        subprocess.check_output(['wget', '-O', out, url])
+        output = subprocess.check_output(['wget', '-O', out, url])
     except subprocess.CalledProcessError as cpe:
-        # notebook version
-        cmd = f"wget -O '{out}' '{url}'"
-        !{cmd}
+        output = e.output
+        print("Ignoring non-zero exit: ", output)
 
 def do_init(args):
     global model, opt, perceptors, normalize, cutoutsTable, cutoutSizeTable
