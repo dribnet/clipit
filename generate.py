@@ -276,6 +276,7 @@ class MakeCutouts(nn.Module):
         self.max_pool = nn.AdaptiveMaxPool2d((self.cut_size, self.cut_size))
 
     def forward(self, input):
+        global i
         sideY, sideX = input.shape[2:4]
         max_size = min(sideX, sideY)
         min_size = min(sideX, sideY, self.cut_size)
@@ -302,12 +303,14 @@ class MakeCutouts(nn.Module):
             # batch = self.transforms @ torch.cat(cutouts, dim=0)
             batch = kornia.geometry.transform.warp_perspective(torch.cat(cutouts, dim=0), self.transforms,
                 (self.cut_size, self.cut_size), padding_mode=global_padding_mode)
-            # for i in range(10):
-            #     TF.to_pil_image(batch[i].cpu()).save(f"cached_im_{i:02d}.png")
+            # if i < 4:
+            #     for j in range(4):
+            #         TF.to_pil_image(batch[j].cpu()).save(f"cached_im_{i:02d}_{j:02d}.png")
         else:
             batch, self.transforms = self.augs(torch.cat(cutouts, dim=0))
-            # for i in range(10):
-            #     TF.to_pil_image(batch[i].cpu()).save(f"live_im_{i:02d}.png")
+            # if i < 4:
+            #     for j in range(4):
+            #         TF.to_pil_image(batch[j].cpu()).save(f"live_im_{i:02d}_{j:02d}.png")
 
         # print(batch.shape, self.transforms.shape)
         
@@ -628,11 +631,16 @@ def checkin(args, i, losses):
 def ascend_txt(args):
     global i, perceptors, normalize, cutoutsTable, cutoutSizeTable
     global z, z_orig, z_targets, z_labels, init_image_tensor
-    global pmsTable
+    global pmsTable, global_padding_mode
 
     out = synth(z)
 
     result = []
+
+    if (i%2 == 0):
+        global_padding_mode = 'reflection'
+    else:
+        global_padding_mode = 'border'
 
     cur_cutouts = {}
     for cutoutSize in cutoutsTable:
