@@ -2,7 +2,7 @@
 
 Yet Another VQGAN-CLIP Codebase
 
-![Alt text](https://user-images.githubusercontent.com/945979/127157276-91f46dde-1792-46bf-a90f-1ed55b1f5206.jpg "it looks like you're writing an image")
+![Alt text](https://user-images.githubusercontent.com/945979/127161241-71c12972-498c-48c3-bff7-df4d86306c3e.png "it looks like you're writing an image")
 
 This started as a fork of @nerdyrodent's VQGAN-CLIP code which was based on the notebooks of @RiversWithWings and @advadnoun. But it quickly morphed into a version of the code that had been tuned up with slightly different behavior and features. It also runs either at the command line *or* in a notebook *or* (soon) in batch mode. 
 
