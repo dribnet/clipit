@@ -9,6 +9,7 @@ import os
 import subprocess
 import glob
 from braceexpand import braceexpand
+from types import SimpleNamespace
 
 # pip install taming-transformers work with Gumbel, but does works with coco etc
 # appending the path works with Gumbel, but gives ModuleNotFoundError: No module named 'transformers' for coco etc
@@ -897,6 +898,9 @@ def do_video(args):
     p.stdin.close()
     p.wait()
 
+# this dictionary is used for settings in the notebook
+global_clipit_settings = {}
+
 def setup_parser():
     # Create the parser
     vq_parser = argparse.ArgumentParser(description='Image generation using VQGAN+CLIP')
@@ -1062,12 +1066,41 @@ def process_args(vq_parser, namespace=None):
 
     return args
 
-def main():
-    global z, model, base_size
+def reset_settings():
+    global global_clipit_settings
+    global_clipit_settings = {}
 
+def add_settings(**kwargs):
+    global global_clipit_settings
+    for k, v in kwargs.items():
+        if v is None:
+            # just remove the key if it is there
+            global_clipit_settings.pop(k, None)
+        else:
+            global_clipit_settings[k] = v
+
+def apply_settings():
+    global global_clipit_settings
+    settingsDict = None
     vq_parser = setup_parser()
-    settings = process_args(vq_parser)
 
+    if len(global_clipit_settings) > 0:
+        # check for any bogus entries in the settings
+        dests = [d.dest for d in vq_parser._actions]
+        for k in global_clipit_settings:
+            if not k in dests:
+                raise ValueError(f"Requested setting not found, aborting: {k}={global_clipit_settings[k]}")
+
+        # convert dictionary to easyDict
+        # which can be used as an argparse namespace instead
+        # settingsDict = easydict.EasyDict(global_clipit_settings)
+        settingsDict = SimpleNamespace(**global_clipit_settings)
+
+    settings = process_args(vq_parser, settingsDict)
+    return settings
+
+def main():
+    settings = apply_settings()    
     do_init(settings)
     do_run(settings)
 
