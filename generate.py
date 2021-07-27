@@ -6,12 +6,14 @@ import math
 from urllib.request import urlopen
 import sys
 import os
+import subprocess
 import glob
 from braceexpand import braceexpand
 
 # pip install taming-transformers work with Gumbel, but does works with coco etc
 # appending the path works with Gumbel, but gives ModuleNotFoundError: No module named 'transformers' for coco etc
 sys.path.append('taming-transformers')
+import os.path
 
 from omegaconf import OmegaConf
 from taming.models import cond_transformer, vqgan
@@ -38,6 +40,27 @@ ImageFile.LOAD_TRUNCATED_IMAGES = True
 
 # or 'border'
 global_padding_mode = 'reflection'
+
+vqgan_config_table = {
+    "imagenet_f16_1024": 'http://mirror.io.community/blob/vqgan/vqgan_imagenet_f16_1024.yaml',
+    "imagenet_f16_16384": 'http://mirror.io.community/blob/vqgan/vqgan_imagenet_f16_16384.yaml',
+    "openimages_f16_8192": 'https://heibox.uni-heidelberg.de/d/2e5662443a6b4307b470/files/?p=%2Fconfigs%2Fmodel.yaml&dl=1',
+    "coco": 'https://dl.nmkd.de/ai/clip/coco/coco.yaml',
+    "faceshq": 'https://drive.google.com/uc?export=download&id=1fHwGx_hnBtC8nsq7hesJvs-Klv-P0gzT',
+    "wikiart_1024": 'http://mirror.io.community/blob/vqgan/wikiart.yaml',
+    "wikiart_16384": 'http://mirror.io.community/blob/vqgan/wikiart_16384.yaml',
+    "sflckr": 'https://heibox.uni-heidelberg.de/d/73487ab6e5314cb5adba/files/?p=%2Fconfigs%2F2020-11-09T13-31-51-project.yaml&dl=1',
+}
+vqgan_checkpoint_table = {
+    "imagenet_f16_1024": 'http://mirror.io.community/blob/vqgan/vqgan_imagenet_f16_1024.ckpt',
+    "imagenet_f16_16384": 'http://mirror.io.community/blob/vqgan/vqgan_imagenet_f16_16384.ckpt',
+    "openimages_f16_8192": 'https://heibox.uni-heidelberg.de/d/2e5662443a6b4307b470/files/?p=%2Fckpts%2Flast.ckpt&dl=1',
+    "coco": 'https://dl.nmkd.de/ai/clip/coco/coco.ckpt',
+    "faceshq": 'https://app.koofr.net/content/links/a04deec9-0c59-4673-8b37-3d696fe63a5d/files/get/last.ckpt?path=%2F2020-11-13T21-41-45_faceshq_transformer%2Fcheckpoints%2Flast.ckpt',
+    "wikiart_1024": 'http://mirror.io.community/blob/vqgan/wikiart.ckpt',
+    "wikiart_16384": 'http://mirror.io.community/blob/vqgan/wikiart_16384.ckpt',
+    "sflckr": 'https://heibox.uni-heidelberg.de/d/73487ab6e5314cb5adba/files/?p=%2Fcheckpoints%2Flast.ckpt&dl=1'
+}
 
 # https://stackoverflow.com/a/39662359
 def isnotebook():
@@ -343,12 +366,14 @@ def load_vqgan_model(config_path, checkpoint_path):
     del model.loss
     return model
 
-
 def resize_image(image, out_size):
     ratio = image.size[0] / image.size[1]
     area = min(image.size[0] * image.size[1], out_size[0] * out_size[1])
     size = round((area * ratio)**0.5), round((area / ratio)**0.5)
     return image.resize(size, Image.LANCZOS)
+
+def wget_file(url, out):
+    subprocess.check_output(['wget', '-O', out, url])
 
 def do_init(args):
     global model, opt, perceptors, normalize, cutoutsTable, cutoutSizeTable
@@ -358,7 +383,19 @@ def do_init(args):
 
     # Do it (init that is)
     device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
-    model = load_vqgan_model(args.vqgan_config, args.vqgan_checkpoint).to(device)
+    if args.vqgan_config is not None:
+        vqgan_config = args.vqgan_config
+        vqgan_checkpoint = args.vqgan_checkpoint
+    else:
+        # the "vqgan_model" option also downloads if necessary
+        vqgan_config = f'models/vqgan_{args.vqgan_model}.yaml'
+        vqgan_checkpoint = f'models/vqgan_{args.vqgan_model}.ckpt'
+        if not os.path.exists(vqgan_config):
+            wget_file(vqgan_config_table[args.vqgan_model], vqgan_config)
+        if not os.path.exists(vqgan_checkpoint):
+            wget_file(vqgan_checkpoint_table[args.vqgan_model], vqgan_checkpoint)
+
+    model = load_vqgan_model(vqgan_config, vqgan_checkpoint).to(device)
     jit = True if float(torch.__version__[:3]) < 1.8 else False
     f = 2**(model.decoder.num_resolutions - 1)
 
@@ -892,8 +929,9 @@ def setup_parser():
     vq_parser.add_argument("-iwc",  "--init_weight_cos", type=float, help="Initial weight cos loss", default=0., dest='init_weight_cos')
     vq_parser.add_argument("-iwp",  "--init_weight_pix", type=float, help="Initial weight pix loss", default=0., dest='init_weight_pix')
     vq_parser.add_argument("-m",    "--clip_models", type=str, help="CLIP model", default=None, dest='clip_models')
-    vq_parser.add_argument("-conf", "--vqgan_config", type=str, help="VQGAN config", default=f'checkpoints/vqgan_imagenet_f16_16384.yaml', dest='vqgan_config')
-    vq_parser.add_argument("-ckpt", "--vqgan_checkpoint", type=str, help="VQGAN checkpoint", default=f'checkpoints/vqgan_imagenet_f16_16384.ckpt', dest='vqgan_checkpoint')
+    vq_parser.add_argument("-vqgan", "--vqgan_model", type=str, help="VQGAN model", default='imagenet_f16_16384', dest='vqgan_model')
+    vq_parser.add_argument("-conf", "--vqgan_config", type=str, help="VQGAN config", default=None, dest='vqgan_config')
+    vq_parser.add_argument("-ckpt", "--vqgan_checkpoint", type=str, help="VQGAN checkpoint", default=None, dest='vqgan_checkpoint')
     vq_parser.add_argument("-nps",  "--noise_prompt_seeds", nargs="*", type=int, help="Noise prompt seeds", default=[], dest='noise_prompt_seeds')
     vq_parser.add_argument("-npw",  "--noise_prompt_weights", nargs="*", type=float, help="Noise prompt weights", default=[], dest='noise_prompt_weights')
     vq_parser.add_argument("-lr",   "--learning_rate", type=float, help="Learning rate", default=0.2, dest='step_size')
