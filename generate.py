@@ -81,7 +81,6 @@ def isnotebook():
 IS_NOTEBOOK = isnotebook()
 
 if IS_NOTEBOOK:
-    print("Setting up with notebook settings")
     from IPython import display
     from tqdm.notebook import tqdm
 else:
