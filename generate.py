@@ -374,7 +374,12 @@ def resize_image(image, out_size):
     return image.resize(size, Image.LANCZOS)
 
 def wget_file(url, out):
-    subprocess.check_output(['wget', '-O', out, url])
+    try:
+        subprocess.check_output(['wget', '-O', out, url])
+    except subprocess.CalledProcessError as cpe:
+        # notebook version
+        cmd = f"wget -O '{out}' '{url}'"
+        !{cmd}
 
 def do_init(args):
     global model, opt, perceptors, normalize, cutoutsTable, cutoutSizeTable
