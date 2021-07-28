@@ -41,6 +41,7 @@ ImageFile.LOAD_TRUNCATED_IMAGES = True
 
 # or 'border'
 global_padding_mode = 'reflection'
+global_aspect_width = 1
 
 vqgan_config_table = {
     "imagenet_f16_1024": 'http://mirror.io.community/blob/vqgan/vqgan_imagenet_f16_1024.yaml',
@@ -271,26 +272,38 @@ class MyRandomPerspective(K.RandomPerspective):
 
 class MakeCutouts(nn.Module):
     def __init__(self, cut_size, cutn, cut_pow=1.):
+        global global_aspect_width
+
         super().__init__()
         self.cut_size = cut_size
         self.cutn = cutn
         self.cut_pow = cut_pow
         self.transforms = None
 
-        self.augs = nn.Sequential(
-            # K.RandomHorizontalFlip(p=0.5),				# NR: add augmentation options
-            # K.RandomVerticalFlip(p=0.5),
-            # K.RandomSolarize(0.01, 0.01, p=0.7),
-            # K.RandomSharpness(0.3,p=0.4),
-            # K.RandomResizedCrop(size=(self.cut_size,self.cut_size), scale=(0.1,1),  ratio=(0.75,1.333), cropping_mode='resample', p=0.5, return_transform=True),
-            # K.RandomCrop(size=(self.cut_size,self.cut_size), p=0.5),
+        augmentations = []
+        if global_aspect_width != 1:
+            augmentations.append(K.RandomCrop(size=(self.cut_size,self.cut_size), p=1.0, return_transform=True))
+        augmentations.append(MyRandomPerspective(distortion_scale=0.40, p=0.7, return_transform=True))
+        augmentations.append(K.RandomResizedCrop(size=(self.cut_size,self.cut_size), scale=(0.15,0.80),  ratio=(0.75,1.333), cropping_mode='resample', p=0.7, return_transform=True))
+        augmentations.append(K.ColorJitter(hue=0.1, saturation=0.1, p=0.8, return_transform=True))
+        self.augs = nn.Sequential(*augmentations)
+
+        # self.augs = nn.Sequential(
+        #     # K.RandomHorizontalFlip(p=0.5),				# NR: add augmentation options
+        #     # K.RandomVerticalFlip(p=0.5),
+        #     # K.RandomSolarize(0.01, 0.01, p=0.7),
+        #     # K.RandomSharpness(0.3,p=0.4),
+        #     # K.RandomResizedCrop(size=(self.cut_size,self.cut_size), scale=(0.1,1),  ratio=(0.75,1.333), cropping_mode='resample', p=0.5, return_transform=True),
+        #     K.RandomCrop(size=(self.cut_size,self.cut_size), p=1.0),
             
-            # K.RandomAffine(degrees=15, translate=0.1, p=0.7, padding_mode='border', return_transform=True),
-            MyRandomPerspective(distortion_scale=0.40, p=0.7, return_transform=True),
-            K.RandomResizedCrop(size=(self.cut_size,self.cut_size), scale=(0.15,0.80),  ratio=(0.75,1.333), cropping_mode='resample', p=0.7, return_transform=True),
-            K.ColorJitter(hue=0.1, saturation=0.1, p=0.8, return_transform=True),
-            # K.RandomErasing((.1, .4), (.3, 1/.3), same_on_batch=True, p=0.7, return_transform=True),
-            )
+        #     # K.RandomAffine(degrees=15, translate=0.1, p=0.7, padding_mode='border', return_transform=True),
+
+        #     # MyRandomPerspective(distortion_scale=0.40, p=0.7, return_transform=True),
+        #     # K.RandomResizedCrop(size=(self.cut_size,self.cut_size), scale=(0.15,0.80),  ratio=(0.75,1.333), cropping_mode='resample', p=0.7, return_transform=True),
+        #     K.ColorJitter(hue=0.1, saturation=0.1, p=0.8, return_transform=True),
+
+        #     # K.RandomErasing((.1, .4), (.3, 1/.3), same_on_batch=True, p=0.7, return_transform=True),
+        #     )
             
         self.noise_fac = 0.1
         
@@ -299,7 +312,7 @@ class MakeCutouts(nn.Module):
         self.max_pool = nn.AdaptiveMaxPool2d((self.cut_size, self.cut_size))
 
     def forward(self, input):
-        global i
+        global i, global_aspect_width
         sideY, sideX = input.shape[2:4]
         max_size = min(sideX, sideY)
         min_size = min(sideX, sideY, self.cut_size)
@@ -315,6 +328,9 @@ class MakeCutouts(nn.Module):
             
             # Pooling
             cutout = (self.av_pool(input) + self.max_pool(input))/2
+            if global_aspect_width != 1:
+                cutout = kornia.geometry.transform.rescale(cutout, (1, 16/9))
+
             cutouts.append(cutout)
 
         if self.transforms is not None:
@@ -956,6 +972,8 @@ square_size = [144, 144]
 widescreen_size = [200, 112]  # at the small size this becomes 192,112
 
 def process_args(vq_parser, namespace=None):
+    global global_aspect_width
+
     if namespace == None:
       # command line: use ARGV to get args
       args = vq_parser.parse_args()
@@ -1033,6 +1051,9 @@ def process_args(vq_parser, namespace=None):
         else:
             print("aspect not understood, aborting -> ", argz.aspect)
             exit(1)
+
+    if args.aspect == "widescreen":
+        global_aspect_width = 16/9
 
     if args.init_noise.lower() == "none":
         args.init_noise = None
