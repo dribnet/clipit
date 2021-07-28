@@ -6,12 +6,15 @@ import math
 from urllib.request import urlopen
 import sys
 import os
+import subprocess
 import glob
 from braceexpand import braceexpand
+from types import SimpleNamespace
 
 # pip install taming-transformers work with Gumbel, but does works with coco etc
 # appending the path works with Gumbel, but gives ModuleNotFoundError: No module named 'transformers' for coco etc
 sys.path.append('taming-transformers')
+import os.path
 
 from omegaconf import OmegaConf
 from taming.models import cond_transformer, vqgan
@@ -38,6 +41,28 @@ ImageFile.LOAD_TRUNCATED_IMAGES = True
 
 # or 'border'
 global_padding_mode = 'reflection'
+global_aspect_width = 1
+
+vqgan_config_table = {
+    "imagenet_f16_1024": 'http://mirror.io.community/blob/vqgan/vqgan_imagenet_f16_1024.yaml',
+    "imagenet_f16_16384": 'http://mirror.io.community/blob/vqgan/vqgan_imagenet_f16_16384.yaml',
+    "openimages_f16_8192": 'https://heibox.uni-heidelberg.de/d/2e5662443a6b4307b470/files/?p=%2Fconfigs%2Fmodel.yaml&dl=1',
+    "coco": 'https://dl.nmkd.de/ai/clip/coco/coco.yaml',
+    "faceshq": 'https://drive.google.com/uc?export=download&id=1fHwGx_hnBtC8nsq7hesJvs-Klv-P0gzT',
+    "wikiart_1024": 'http://mirror.io.community/blob/vqgan/wikiart.yaml',
+    "wikiart_16384": 'http://mirror.io.community/blob/vqgan/wikiart_16384.yaml',
+    "sflckr": 'https://heibox.uni-heidelberg.de/d/73487ab6e5314cb5adba/files/?p=%2Fconfigs%2F2020-11-09T13-31-51-project.yaml&dl=1',
+}
+vqgan_checkpoint_table = {
+    "imagenet_f16_1024": 'http://mirror.io.community/blob/vqgan/vqgan_imagenet_f16_1024.ckpt',
+    "imagenet_f16_16384": 'http://mirror.io.community/blob/vqgan/vqgan_imagenet_f16_16384.ckpt',
+    "openimages_f16_8192": 'https://heibox.uni-heidelberg.de/d/2e5662443a6b4307b470/files/?p=%2Fckpts%2Flast.ckpt&dl=1',
+    "coco": 'https://dl.nmkd.de/ai/clip/coco/coco.ckpt',
+    "faceshq": 'https://app.koofr.net/content/links/a04deec9-0c59-4673-8b37-3d696fe63a5d/files/get/last.ckpt?path=%2F2020-11-13T21-41-45_faceshq_transformer%2Fcheckpoints%2Flast.ckpt',
+    "wikiart_1024": 'http://mirror.io.community/blob/vqgan/wikiart.ckpt',
+    "wikiart_16384": 'http://mirror.io.community/blob/vqgan/wikiart_16384.ckpt',
+    "sflckr": 'https://heibox.uni-heidelberg.de/d/73487ab6e5314cb5adba/files/?p=%2Fcheckpoints%2Flast.ckpt&dl=1'
+}
 
 # https://stackoverflow.com/a/39662359
 def isnotebook():
@@ -57,7 +82,6 @@ def isnotebook():
 IS_NOTEBOOK = isnotebook()
 
 if IS_NOTEBOOK:
-    print("Setting up with notebook settings")
     from IPython import display
     from tqdm.notebook import tqdm
 else:
@@ -248,26 +272,38 @@ class MyRandomPerspective(K.RandomPerspective):
 
 class MakeCutouts(nn.Module):
     def __init__(self, cut_size, cutn, cut_pow=1.):
+        global global_aspect_width
+
         super().__init__()
         self.cut_size = cut_size
         self.cutn = cutn
         self.cut_pow = cut_pow
         self.transforms = None
 
-        self.augs = nn.Sequential(
-            # K.RandomHorizontalFlip(p=0.5),				# NR: add augmentation options
-            # K.RandomVerticalFlip(p=0.5),
-            # K.RandomSolarize(0.01, 0.01, p=0.7),
-            # K.RandomSharpness(0.3,p=0.4),
-            # K.RandomResizedCrop(size=(self.cut_size,self.cut_size), scale=(0.1,1),  ratio=(0.75,1.333), cropping_mode='resample', p=0.5, return_transform=True),
-            # K.RandomCrop(size=(self.cut_size,self.cut_size), p=0.5),
+        augmentations = []
+        if global_aspect_width != 1:
+            augmentations.append(K.RandomCrop(size=(self.cut_size,self.cut_size), p=1.0, return_transform=True))
+        augmentations.append(MyRandomPerspective(distortion_scale=0.40, p=0.7, return_transform=True))
+        augmentations.append(K.RandomResizedCrop(size=(self.cut_size,self.cut_size), scale=(0.15,0.80),  ratio=(0.75,1.333), cropping_mode='resample', p=0.7, return_transform=True))
+        augmentations.append(K.ColorJitter(hue=0.1, saturation=0.1, p=0.8, return_transform=True))
+        self.augs = nn.Sequential(*augmentations)
+
+        # self.augs = nn.Sequential(
+        #     # K.RandomHorizontalFlip(p=0.5),				# NR: add augmentation options
+        #     # K.RandomVerticalFlip(p=0.5),
+        #     # K.RandomSolarize(0.01, 0.01, p=0.7),
+        #     # K.RandomSharpness(0.3,p=0.4),
+        #     # K.RandomResizedCrop(size=(self.cut_size,self.cut_size), scale=(0.1,1),  ratio=(0.75,1.333), cropping_mode='resample', p=0.5, return_transform=True),
+        #     K.RandomCrop(size=(self.cut_size,self.cut_size), p=1.0),
             
-            # K.RandomAffine(degrees=15, translate=0.1, p=0.7, padding_mode='border', return_transform=True),
-            MyRandomPerspective(distortion_scale=0.40, p=0.7, return_transform=True),
-            K.RandomResizedCrop(size=(self.cut_size,self.cut_size), scale=(0.15,0.80),  ratio=(0.75,1.333), cropping_mode='resample', p=0.7, return_transform=True),
-            K.ColorJitter(hue=0.1, saturation=0.1, p=0.8, return_transform=True),
-            # K.RandomErasing((.1, .4), (.3, 1/.3), same_on_batch=True, p=0.7, return_transform=True),
-            )
+        #     # K.RandomAffine(degrees=15, translate=0.1, p=0.7, padding_mode='border', return_transform=True),
+
+        #     # MyRandomPerspective(distortion_scale=0.40, p=0.7, return_transform=True),
+        #     # K.RandomResizedCrop(size=(self.cut_size,self.cut_size), scale=(0.15,0.80),  ratio=(0.75,1.333), cropping_mode='resample', p=0.7, return_transform=True),
+        #     K.ColorJitter(hue=0.1, saturation=0.1, p=0.8, return_transform=True),
+
+        #     # K.RandomErasing((.1, .4), (.3, 1/.3), same_on_batch=True, p=0.7, return_transform=True),
+        #     )
             
         self.noise_fac = 0.1
         
@@ -276,7 +312,7 @@ class MakeCutouts(nn.Module):
         self.max_pool = nn.AdaptiveMaxPool2d((self.cut_size, self.cut_size))
 
     def forward(self, input):
-        global i
+        global i, global_aspect_width
         sideY, sideX = input.shape[2:4]
         max_size = min(sideX, sideY)
         min_size = min(sideX, sideY, self.cut_size)
@@ -292,6 +328,9 @@ class MakeCutouts(nn.Module):
             
             # Pooling
             cutout = (self.av_pool(input) + self.max_pool(input))/2
+            if global_aspect_width != 1:
+                cutout = kornia.geometry.transform.rescale(cutout, (1, 16/9))
+
             cutouts.append(cutout)
 
         if self.transforms is not None:
@@ -343,12 +382,18 @@ def load_vqgan_model(config_path, checkpoint_path):
     del model.loss
     return model
 
-
 def resize_image(image, out_size):
     ratio = image.size[0] / image.size[1]
     area = min(image.size[0] * image.size[1], out_size[0] * out_size[1])
     size = round((area * ratio)**0.5), round((area / ratio)**0.5)
     return image.resize(size, Image.LANCZOS)
+
+def wget_file(url, out):
+    try:
+        output = subprocess.check_output(['wget', '-O', out, url])
+    except subprocess.CalledProcessError as cpe:
+        output = e.output
+        print("Ignoring non-zero exit: ", output)
 
 def do_init(args):
     global model, opt, perceptors, normalize, cutoutsTable, cutoutSizeTable
@@ -358,7 +403,19 @@ def do_init(args):
 
     # Do it (init that is)
     device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
-    model = load_vqgan_model(args.vqgan_config, args.vqgan_checkpoint).to(device)
+    if args.vqgan_config is not None:
+        vqgan_config = args.vqgan_config
+        vqgan_checkpoint = args.vqgan_checkpoint
+    else:
+        # the "vqgan_model" option also downloads if necessary
+        vqgan_config = f'models/vqgan_{args.vqgan_model}.yaml'
+        vqgan_checkpoint = f'models/vqgan_{args.vqgan_model}.ckpt'
+        if not os.path.exists(vqgan_config):
+            wget_file(vqgan_config_table[args.vqgan_model], vqgan_config)
+        if not os.path.exists(vqgan_checkpoint):
+            wget_file(vqgan_checkpoint_table[args.vqgan_model], vqgan_checkpoint)
+
+    model = load_vqgan_model(vqgan_config, vqgan_checkpoint).to(device)
     jit = True if float(torch.__version__[:3]) < 1.8 else False
     f = 2**(model.decoder.num_resolutions - 1)
 
@@ -370,7 +427,7 @@ def do_init(args):
         cut_size = perceptor.visual.input_resolution
         cutoutSizeTable[clip_model] = cut_size
         if not cut_size in cutoutsTable:    
-            make_cutouts = MakeCutouts(cut_size, args.cutn, cut_pow=args.cut_pow)
+            make_cutouts = MakeCutouts(cut_size, args.num_cuts, cut_pow=args.cut_pow)
             cutoutsTable[cut_size] = make_cutouts
 
     toksX, toksY = args.size[0] // f, args.size[1] // f
@@ -802,7 +859,7 @@ def do_run(args):
             while True:
                 try:
                     train(args, i)
-                    if i == args.max_iterations:
+                    if i == args.iterations:
                         break
                     i += 1
                     pbar.update()
@@ -860,6 +917,9 @@ def do_video(args):
     p.stdin.close()
     p.wait()
 
+# this dictionary is used for settings in the notebook
+global_clipit_settings = {}
+
 def setup_parser():
     # Create the parser
     vq_parser = argparse.ArgumentParser(description='Image generation using VQGAN+CLIP')
@@ -872,7 +932,7 @@ def setup_parser():
     vq_parser.add_argument("-ips",  "--image_prompt_shuffle", type=bool, help="Shuffle image prompts", default=False, dest='image_prompt_shuffle')
     vq_parser.add_argument("-il",   "--image_labels", type=str, help="Image prompts", default=None, dest='image_labels')
     vq_parser.add_argument("-ilw",  "--image_label_weight", type=float, help="Weight for image prompt", default=1.0, dest='image_label_weight')
-    vq_parser.add_argument("-i",    "--iterations", type=int, help="Number of iterations", default=None, dest='max_iterations')
+    vq_parser.add_argument("-i",    "--iterations", type=int, help="Number of iterations", default=None, dest='iterations')
     vq_parser.add_argument("-se",   "--save_every", type=int, help="Save image iterations", default=50, dest='display_freq')
     vq_parser.add_argument("-ove",  "--overlay_every", type=int, help="Overlay image iterations", default=None, dest='overlay_every')
     vq_parser.add_argument("-ovi",  "--overlay_image", type=str, help="Overlay image (if not init)", default=None, dest='overlay_image')
@@ -892,12 +952,13 @@ def setup_parser():
     vq_parser.add_argument("-iwc",  "--init_weight_cos", type=float, help="Initial weight cos loss", default=0., dest='init_weight_cos')
     vq_parser.add_argument("-iwp",  "--init_weight_pix", type=float, help="Initial weight pix loss", default=0., dest='init_weight_pix')
     vq_parser.add_argument("-m",    "--clip_models", type=str, help="CLIP model", default=None, dest='clip_models')
-    vq_parser.add_argument("-conf", "--vqgan_config", type=str, help="VQGAN config", default=f'checkpoints/vqgan_imagenet_f16_16384.yaml', dest='vqgan_config')
-    vq_parser.add_argument("-ckpt", "--vqgan_checkpoint", type=str, help="VQGAN checkpoint", default=f'checkpoints/vqgan_imagenet_f16_16384.ckpt', dest='vqgan_checkpoint')
+    vq_parser.add_argument("-vqgan", "--vqgan_model", type=str, help="VQGAN model", default='imagenet_f16_16384', dest='vqgan_model')
+    vq_parser.add_argument("-conf", "--vqgan_config", type=str, help="VQGAN config", default=None, dest='vqgan_config')
+    vq_parser.add_argument("-ckpt", "--vqgan_checkpoint", type=str, help="VQGAN checkpoint", default=None, dest='vqgan_checkpoint')
     vq_parser.add_argument("-nps",  "--noise_prompt_seeds", nargs="*", type=int, help="Noise prompt seeds", default=[], dest='noise_prompt_seeds')
     vq_parser.add_argument("-npw",  "--noise_prompt_weights", nargs="*", type=float, help="Noise prompt weights", default=[], dest='noise_prompt_weights')
     vq_parser.add_argument("-lr",   "--learning_rate", type=float, help="Learning rate", default=0.2, dest='step_size')
-    vq_parser.add_argument("-cuts", "--num_cuts", type=int, help="Number of cuts", default=None, dest='cutn')
+    vq_parser.add_argument("-cuts", "--num_cuts", type=int, help="Number of cuts", default=None, dest='num_cuts')
     vq_parser.add_argument("-cutp", "--cut_power", type=float, help="Cut power", default=1., dest='cut_pow')
     vq_parser.add_argument("-sd",   "--seed", type=int, help="Seed", default=None, dest='seed')
     vq_parser.add_argument("-opt",  "--optimiser", type=str, help="Optimiser (Adam, AdamW, Adagrad, Adamax, DiffGrad, AdamP or RAdam)", default='Adam', dest='optimiser')
@@ -911,6 +972,8 @@ square_size = [144, 144]
 widescreen_size = [200, 112]  # at the small size this becomes 192,112
 
 def process_args(vq_parser, namespace=None):
+    global global_aspect_width
+
     if namespace == None:
       # command line: use ARGV to get args
       args = vq_parser.parse_args()
@@ -927,7 +990,7 @@ def process_args(vq_parser, namespace=None):
         'better': 'RN50,ViT-B/32,ViT-B/16',
         'best': 'RN50x4,ViT-B/32,ViT-B/16'
     }
-    quality_to_max_iterations_table = {
+    quality_to_iterations_table = {
         'draft': 200,
         'normal': 350,
         'better': 500,
@@ -941,7 +1004,7 @@ def process_args(vq_parser, namespace=None):
     }
     # this should be replaced with logic that does somethings
     # smart based on available memory (eg: size, num_models, etc)
-    quality_to_cutn_table = {
+    quality_to_num_cuts_table = {
         'draft': 40,
         'normal': 40,
         'better': 40,
@@ -954,10 +1017,10 @@ def process_args(vq_parser, namespace=None):
 
     if args.clip_models is None:
         args.clip_models = quality_to_clip_models_table[args.quality]
-    if args.max_iterations is None:
-        args.max_iterations = quality_to_max_iterations_table[args.quality]
-    if args.cutn is None:
-        args.cutn = quality_to_cutn_table[args.quality]
+    if args.iterations is None:
+        args.iterations = quality_to_iterations_table[args.quality]
+    if args.num_cuts is None:
+        args.num_cuts = quality_to_num_cuts_table[args.quality]
     if args.ezsize is None and args.scale is None:
         args.scale = quality_to_scale_table[args.quality]
 
@@ -988,6 +1051,9 @@ def process_args(vq_parser, namespace=None):
         else:
             print("aspect not understood, aborting -> ", argz.aspect)
             exit(1)
+
+    if args.aspect == "widescreen":
+        global_aspect_width = 16/9
 
     if args.init_noise.lower() == "none":
         args.init_noise = None
@@ -1024,12 +1090,41 @@ def process_args(vq_parser, namespace=None):
 
     return args
 
-def main():
-    global z, model, base_size
+def reset_settings():
+    global global_clipit_settings
+    global_clipit_settings = {}
 
+def add_settings(**kwargs):
+    global global_clipit_settings
+    for k, v in kwargs.items():
+        if v is None:
+            # just remove the key if it is there
+            global_clipit_settings.pop(k, None)
+        else:
+            global_clipit_settings[k] = v
+
+def apply_settings():
+    global global_clipit_settings
+    settingsDict = None
     vq_parser = setup_parser()
-    settings = process_args(vq_parser)
 
+    if len(global_clipit_settings) > 0:
+        # check for any bogus entries in the settings
+        dests = [d.dest for d in vq_parser._actions]
+        for k in global_clipit_settings:
+            if not k in dests:
+                raise ValueError(f"Requested setting not found, aborting: {k}={global_clipit_settings[k]}")
+
+        # convert dictionary to easyDict
+        # which can be used as an argparse namespace instead
+        # settingsDict = easydict.EasyDict(global_clipit_settings)
+        settingsDict = SimpleNamespace(**global_clipit_settings)
+
+    settings = process_args(vq_parser, settingsDict)
+    return settings
+
+def main():
+    settings = apply_settings()    
     do_init(settings)
     do_run(settings)
 
