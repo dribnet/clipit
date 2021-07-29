@@ -485,7 +485,7 @@ def do_init(args):
             init_image_rgba = init_image.convert('RGBA')
             init_image_rgba = init_image_rgba.resize((sideX, sideY), Image.LANCZOS)
             top_image = init_image_rgba.copy()
-            if args.init_image_alpha:
+            if args.init_image_alpha and args.init_image_alpha >= 0:
                 top_image.putalpha(args.init_image_alpha)
             starting_image.paste(top_image, (0, 0), top_image)
 
@@ -834,7 +834,8 @@ def train(args, i):
     loss.backward()
     opt.step()
 
-    if args.overlay_every and i != 0 and i % args.overlay_every == 0:
+    if args.overlay_every and i != 0 and \
+        (i % (args.overlay_every + args.overlay_offset)) == 0:
         re_average_z(args)
     
     with torch.no_grad():
@@ -935,6 +936,7 @@ def setup_parser():
     vq_parser.add_argument("-i",    "--iterations", type=int, help="Number of iterations", default=None, dest='iterations')
     vq_parser.add_argument("-se",   "--save_every", type=int, help="Save image iterations", default=50, dest='display_freq')
     vq_parser.add_argument("-ove",  "--overlay_every", type=int, help="Overlay image iterations", default=None, dest='overlay_every')
+    vq_parser.add_argument("-ovo",  "--overlay_offset", type=int, help="Overlay image iteration offset", default=0, dest='overlay_offset')
     vq_parser.add_argument("-ovi",  "--overlay_image", type=str, help="Overlay image (if not init)", default=None, dest='overlay_image')
     vq_parser.add_argument("-qua",  "--quality", type=str, help="draft, normal, best", default="normal", dest='quality')
     vq_parser.add_argument("-asp",  "--aspect", type=str, help="widescreen, square", default="widescreen", dest='aspect')
