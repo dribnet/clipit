@@ -268,7 +268,32 @@ class MyRandomPerspective(K.RandomPerspective):
         )
 
 
+cached_spot_indexes = {}
+def fetch_spot_indexes(sideX, sideY):
+    # make sure image is loaded if we need it
+    cache_key = (sideX, sideY)
 
+    if cache_key not in cached_spot_indexes:
+        if global_aspect_width != 1:
+            mask_image = Image.open("inputs/spot_wide.png")
+        else:
+            mask_image = Image.open("inputs/spot_square.png")
+        # this is a one channel mask
+        mask_image = mask_image.convert('RGB')
+        mask_image = mask_image.resize((sideX, sideY), Image.LANCZOS)
+        mask_image_tensor = TF.to_tensor(mask_image)
+        # print("ONE CHANNEL ", mask_image_tensor.shape)
+        mask_indexes = mask_image_tensor.ge(0.5).to(device)
+        # print("GE ", mask_indexes.shape)
+        # sys.exit(0)
+        mask_indexes_off = mask_image_tensor.lt(0.5).to(device)
+        cached_spot_indexes[cache_key] = [mask_indexes, mask_indexes_off]
+
+    return cached_spot_indexes[cache_key]
+
+# n = torch.ones((3,5,5))
+# f = generate.fetch_spot_indexes(5, 5)
+# f[0].shape = [60,3]
 
 class MakeCutouts(nn.Module):
     def __init__(self, cut_size, cutn, cut_pow=1.):
@@ -311,12 +336,21 @@ class MakeCutouts(nn.Module):
         self.av_pool = nn.AdaptiveAvgPool2d((self.cut_size, self.cut_size))
         self.max_pool = nn.AdaptiveMaxPool2d((self.cut_size, self.cut_size))
 
-    def forward(self, input):
+    def forward(self, input, spot=None):
         global i, global_aspect_width
         sideY, sideX = input.shape[2:4]
         max_size = min(sideX, sideY)
         min_size = min(sideX, sideY, self.cut_size)
         cutouts = []
+        mask_indexes = None
+
+        if spot is not None:
+            spot_indexes = fetch_spot_indexes(self.cut_size, self.cut_size)
+            if spot == 0:
+                mask_indexes = spot_indexes[1]
+            else:
+                mask_indexes = spot_indexes[0]
+            # print("Mask indexes ", mask_indexes)
 
         for _ in range(self.cutn):
             # size = int(torch.rand([])**self.cut_pow * (max_size - min_size) + min_size)
@@ -328,8 +362,16 @@ class MakeCutouts(nn.Module):
             
             # Pooling
             cutout = (self.av_pool(input) + self.max_pool(input))/2
+
+            if mask_indexes is not None:
+                cutout[0][mask_indexes] = 0.5
+
             if global_aspect_width != 1:
                 cutout = kornia.geometry.transform.rescale(cutout, (1, 16/9))
+
+            # if i % 50 == 0 and _ == 0:
+            #     print(cutout.shape)
+            #     TF.to_pil_image(cutout[0].cpu()).save(f"cutout_im_{i:02d}_{spot}.png")
 
             cutouts.append(cutout)
 
@@ -342,14 +384,14 @@ class MakeCutouts(nn.Module):
             # batch = self.transforms @ torch.cat(cutouts, dim=0)
             batch = kornia.geometry.transform.warp_perspective(torch.cat(cutouts, dim=0), self.transforms,
                 (self.cut_size, self.cut_size), padding_mode=global_padding_mode)
-            # if i < 4:
-            #     for j in range(4):
-            #         TF.to_pil_image(batch[j].cpu()).save(f"cached_im_{i:02d}_{j:02d}.png")
+            if i < 4:
+                for j in range(4):
+                    TF.to_pil_image(batch[j].cpu()).save(f"cached_im_{i:02d}_{j:02d}_{spot}.png")
         else:
             batch, self.transforms = self.augs(torch.cat(cutouts, dim=0))
-            # if i < 4:
-            #     for j in range(4):
-            #         TF.to_pil_image(batch[j].cpu()).save(f"live_im_{i:02d}_{j:02d}.png")
+            if i < 4:
+                for j in range(4):
+                    TF.to_pil_image(batch[j].cpu()).save(f"live_im_{i:02d}_{j:02d}_{spot}.png")
 
         # print(batch.shape, self.transforms.shape)
         
@@ -399,7 +441,7 @@ def do_init(args):
     global model, opt, perceptors, normalize, cutoutsTable, cutoutSizeTable
     global z, z_orig, z_targets, z_labels, z_min, z_max, init_image_tensor
     global gside_X, gside_Y, overlay_image_rgba
-    global pmsTable, pImages, device
+    global pmsTable, pImages, device, spotPmsTable, spotOffPmsTable
 
     # Do it (init that is)
     device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
@@ -553,8 +595,12 @@ def do_init(args):
     z.requires_grad_(True)
 
     pmsTable = {}
+    spotPmsTable = {}
+    spotOffPmsTable = {}
     for clip_model in args.clip_models:
         pmsTable[clip_model] = []
+        spotPmsTable[clip_model] = []
+        spotOffPmsTable[clip_model] = []
     pImages = []
     normalize = transforms.Normalize(mean=[0.48145466, 0.4578275, 0.40821073],
                                       std=[0.26862954, 0.26130258, 0.27577711])
@@ -564,6 +610,22 @@ def do_init(args):
     for prompt in args.prompts:
         for clip_model in args.clip_models:
             pMs = pmsTable[clip_model]
+            perceptor = perceptors[clip_model]
+            txt, weight, stop = parse_prompt(prompt)
+            embed = perceptor.encode_text(clip.tokenize(txt).to(device)).float()
+            pMs.append(Prompt(embed, weight, stop).to(device))
+
+    for prompt in args.spot_prompts:
+        for clip_model in args.clip_models:
+            pMs = spotPmsTable[clip_model]
+            perceptor = perceptors[clip_model]
+            txt, weight, stop = parse_prompt(prompt)
+            embed = perceptor.encode_text(clip.tokenize(txt).to(device)).float()
+            pMs.append(Prompt(embed, weight, stop).to(device))
+
+    for prompt in args.spot_prompts_off:
+        for clip_model in args.clip_models:
+            pMs = spotOffPmsTable[clip_model]
             perceptor = perceptors[clip_model]
             txt, weight, stop = parse_prompt(prompt)
             embed = perceptor.encode_text(clip.tokenize(txt).to(device)).float()
@@ -660,6 +722,8 @@ cutoutsTable = {}
 cutoutSizeTable = {}
 init_image_tensor = None
 pmsTable = None
+spotPmsTable = None 
+spotOffPmsTable = None 
 pImages = None
 gside_X=None
 gside_Y=None
@@ -688,7 +752,7 @@ def checkin(args, i, losses):
 def ascend_txt(args):
     global i, perceptors, normalize, cutoutsTable, cutoutSizeTable
     global z, z_orig, z_targets, z_labels, init_image_tensor
-    global pmsTable, global_padding_mode
+    global pmsTable, spotPmsTable, spotOffPmsTable, global_padding_mode
 
     out = synth(z)
 
@@ -700,34 +764,51 @@ def ascend_txt(args):
         global_padding_mode = 'border'
 
     cur_cutouts = {}
+    cur_spot_cutouts = {}
+    cur_spot_off_cutouts = {}
     for cutoutSize in cutoutsTable:
         make_cutouts = cutoutsTable[cutoutSize]
         cur_cutouts[cutoutSize] = make_cutouts(out)
 
+    if args.spot_prompts:
+        for cutoutSize in cutoutsTable:
+            cur_spot_cutouts[cutoutSize] = make_cutouts(out, spot=1)
+
+    if args.spot_prompts_off:
+        for cutoutSize in cutoutsTable:
+            cur_spot_off_cutouts[cutoutSize] = make_cutouts(out, spot=0)
+
     for clip_model in args.clip_models:
-        pMs = pmsTable[clip_model]
-        transient_pMs = []
         perceptor = perceptors[clip_model]
         cutoutSize = cutoutSizeTable[clip_model]
+        transient_pMs = []
+
+        if args.spot_prompts:
+            iii_s = perceptor.encode_image(normalize( cur_spot_cutouts[cutoutSize] )).float()
+            spotPms = spotPmsTable[clip_model]
+            for prompt in spotPms:
+                result.append(prompt(iii_s))
+
+        if args.spot_prompts_off:
+            iii_so = perceptor.encode_image(normalize( cur_spot_off_cutouts[cutoutSize] )).float()
+            spotOffPms = spotOffPmsTable[clip_model]
+            for prompt in spotOffPms:
+                result.append(prompt(iii_so))
+
+        pMs = pmsTable[clip_model]
         iii = perceptor.encode_image(normalize( cur_cutouts[cutoutSize] )).float()
+        for prompt in pMs:
+            result.append(prompt(iii))
 
+        # If there are image prompts we make cutouts for those each time
+        # so that they line up with the current cutouts from augmentation
         make_cutouts = cutoutsTable[cutoutSize]
-
         for timg in pImages:
             # note: this caches and reuses the transforms - a bit of a hack but it works
 
             if args.image_prompt_shuffle:
                 # print("Disabling cached transforms")
                 make_cutouts.transforms = None
-
-            # this is the old method which uses mse_loss
-            # batch = make_cutouts(timg)
-            # embed = perceptor.encode_image(normalize(batch)).float()
-            # cur_loss = F.mse_loss(iii, embed)
-            # if args.image_prompt_weight is not None:
-            #     # print("Downweighting image_prompt by ", args.image_prompt_weight)
-            #     cur_loss = args.image_prompt_weight * cur_loss
-            # result.append(cur_loss)
 
             # new way builds throwaway Prompts
             batch = make_cutouts(timg)
@@ -738,8 +819,6 @@ def ascend_txt(args):
                 transient_pMs.append(Prompt(embed).to(device))
 
         for prompt in transient_pMs:
-            result.append(prompt(iii))
-        for prompt in pMs:
             result.append(prompt(iii))
 
     for cutoutSize in cutoutsTable:
@@ -927,6 +1006,8 @@ def setup_parser():
 
     # Add the arguments
     vq_parser.add_argument("-p",    "--prompts", type=str, help="Text prompts", default=[], dest='prompts')
+    vq_parser.add_argument("-sp",   "--spot", type=str, help="Spot Text prompts", default=[], dest='spot_prompts')
+    vq_parser.add_argument("-spo",  "--spot_off", type=str, help="Spot off Text prompts", default=[], dest='spot_prompts_off')
     vq_parser.add_argument("-l",    "--labels", type=str, help="ImageNet labels", default=[], dest='labels')
     vq_parser.add_argument("-ip",   "--image_prompts", type=str, help="Image prompts", default=[], dest='image_prompts')
     vq_parser.add_argument("-ipw",  "--image_prompt_weight", type=float, help="Weight for image prompt", default=None, dest='image_prompt_weight')
@@ -941,7 +1022,7 @@ def setup_parser():
     vq_parser.add_argument("-qua",  "--quality", type=str, help="draft, normal, best", default="normal", dest='quality')
     vq_parser.add_argument("-asp",  "--aspect", type=str, help="widescreen, square", default="widescreen", dest='aspect')
     vq_parser.add_argument("-ezs",  "--ezsize", type=str, help="small, medium, large", default=None, dest='ezsize')
-    vq_parser.add_argument("-sca",  "--scale", type=int, help="scale (instead of ezsize)", default=None, dest='scale')
+    vq_parser.add_argument("-sca",  "--scale", type=float, help="scale (instead of ezsize)", default=None, dest='scale')
     vq_parser.add_argument("-ova",  "--overlay_alpha", type=int, help="Overlay alpha (0-255)", default=None, dest='overlay_alpha')    
     vq_parser.add_argument("-s",    "--size", nargs=2, type=int, help="Image size (width height)", default=None, dest='size')
     vq_parser.add_argument("-ii",   "--init_image", type=str, help="Initial image", default=None, dest='init_image')
@@ -1047,8 +1128,8 @@ def process_args(vq_parser, namespace=None):
                 exit(1)
         if args.aspect in aspect_to_size_table:
             base_size = aspect_to_size_table[args.aspect]
-            base_width = size_scale * base_size[0]
-            base_height = size_scale * base_size[1]
+            base_width = int(size_scale * base_size[0])
+            base_height = int(size_scale * base_size[1])
             args.size = [base_width, base_height]
         else:
             print("aspect not understood, aborting -> ", argz.aspect)
@@ -1063,6 +1144,14 @@ def process_args(vq_parser, namespace=None):
     # Split text prompts using the pipe character
     if args.prompts:
         args.prompts = [phrase.strip() for phrase in args.prompts.split("|")]
+
+    # Split text prompts using the pipe character
+    if args.spot_prompts:
+        args.spot_prompts = [phrase.strip() for phrase in args.spot_prompts.split("|")]
+
+    # Split text prompts using the pipe character
+    if args.spot_prompts_off:
+        args.spot_prompts_off = [phrase.strip() for phrase in args.spot_prompts_off.split("|")]
 
     # Split text labels using the pipe character
     if args.labels:
