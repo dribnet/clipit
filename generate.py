@@ -250,6 +250,7 @@ class Prompt(nn.Module):
 def parse_prompt(prompt):
     vals = prompt.rsplit(':', 2)
     vals = vals + ['', '1', '-inf'][len(vals):]
+    # print(f"parsed vals is {vals}")
     return vals[0], float(vals[1]), float(vals[2])
 
 
@@ -684,6 +685,10 @@ def do_init(args):
 
     if args.prompts:
         print('Using text prompts:', args.prompts)
+    if args.spot_prompts:
+        print('Using spot prompts:', args.spot_prompts)
+    if args.spot_prompts_off:
+        print('Using spot off prompts:', args.spot_prompts_off)
     if args.image_prompts:
         print('Using image prompts:', args.image_prompts)
     if args.init_image:
