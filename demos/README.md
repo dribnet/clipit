@@ -5,6 +5,4 @@
 | Start Here  |  [![Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/dribnet/clipit/blob/master/demos/Start_Here.ipynb)  |
 | Swap Model  |  [![Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/dribnet/clipit/blob/master/demos/Swap_Model.ipynb)  |
 | Init Image  | Coming soon  |
-| Target Image  | Coming soon  |
 | Image Prompt  | Coming soon  |
-| Overlay  | Coming soon  |
