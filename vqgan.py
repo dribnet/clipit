@@ -126,7 +126,7 @@ class VqganDrawer(DrawingInterface):
             self.z.copy_(new_z)
 
     def get_z_from_tensor(self, ref_tensor):
-        z_ref, *_ = self.model.encode(init_tensor)
+        z_ref, *_ = self.model.encode(ref_tensor)
         return z_ref
 
     def get_num_resolutions(self):

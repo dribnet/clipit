@@ -251,7 +251,7 @@ class MakeCutouts(nn.Module):
         self.max_pool = nn.AdaptiveMaxPool2d((self.cut_size, self.cut_size))
 
     def forward(self, input, spot=None):
-        global i, global_aspect_width
+        global global_aspect_width
         sideY, sideX = input.shape[2:4]
         max_size = min(sideX, sideY)
         min_size = min(sideX, sideY, self.cut_size)
@@ -345,6 +345,7 @@ def do_init(args):
     drawer = VqganDrawer()
     drawer.load_model(vqgan_config, vqgan_checkpoint, device)
     num_resolutions = drawer.get_num_resolutions()
+    # print("-----------> NUMR ", num_resolutions)
 
     jit = True if float(torch.__version__[:3]) < 1.8 else False
     f = 2**(num_resolutions - 1)
@@ -582,14 +583,13 @@ gside_X=None
 gside_Y=None
 overlay_image_rgba=None
 device=None
-# OK, THIS ONE IS AWFUL
-i=None
+cur_iteration=None
 
 @torch.no_grad()
-def checkin(args, i, losses):
+def checkin(args, iter, losses):
     global drawer
     losses_str = ', '.join(f'{loss.item():g}' for loss in losses)
-    tqdm.write(f'i: {i}, loss: {sum(losses).item():g}, losses: {losses_str}')
+    tqdm.write(f'iter: {iter}, loss: {sum(losses).item():g}, losses: {losses_str}')
     info = PngImagePlugin.PngInfo()
     info.add_text('comment', f'{args.prompts}')
     img = drawer.to_image()
@@ -598,7 +598,7 @@ def checkin(args, i, losses):
         display.display(display.Image(args.output))
 
 def ascend_txt(args):
-    global i, perceptors, normalize, cutoutsTable, cutoutSizeTable
+    global cur_iteration, perceptors, normalize, cutoutsTable, cutoutSizeTable
     global z_orig, z_targets, z_labels, init_image_tensor, drawer
     global pmsTable, spotPmsTable, spotOffPmsTable, global_padding_mode
 
@@ -606,7 +606,7 @@ def ascend_txt(args):
 
     result = []
 
-    if (i%2 == 0):
+    if (cur_iteration%2 == 0):
         global_padding_mode = 'reflection'
     else:
         global_padding_mode = 'border'
@@ -705,12 +705,6 @@ def ascend_txt(args):
         if init_image_tensor is None:
             print("OOPS IIT is 0")
         else:
-            # TF.to_pil_image(out[0].cpu()).save(f"out_1.png")
-            # TF.to_pil_image(init_image_tensor[0].cpu()).save(f"init_1.png")
-            # print(out.shape)
-            # print(init_image_tensor.shape)
-            # print(out[0][0])
-            # print(init_image_tensor[0][0])
             cur_loss = F.l1_loss(out, init_image_tensor) * args.init_weight_pix / 2
             result.append(cur_loss)
 
@@ -733,7 +727,7 @@ def re_average_z(args):
     global device, drawer
 
     # old_z = z.clone()
-    cur_z_image = z_to_pil()
+    cur_z_image = drawer.to_image()
     cur_z_image = cur_z_image.convert('RGB')
     if overlay_image_rgba:
         # print("applying overlay image")
@@ -744,20 +738,20 @@ def re_average_z(args):
 
 # torch.autograd.set_detect_anomaly(True)
 
-def train(args, i):
+def train(args, cur_it):
     global drawer;
     opt.zero_grad(set_to_none=True)
     lossAll = ascend_txt(args)
     
-    if i % args.display_freq == 0:
-        checkin(args, i, lossAll)
+    if cur_it % args.display_freq == 0:
+        checkin(args, cur_it, lossAll)
 
     loss = sum(lossAll)
     loss.backward()
     opt.step()
 
-    if args.overlay_every and i != 0 and \
-        (i % (args.overlay_every + args.overlay_offset)) == 0:
+    if args.overlay_every and cur_it != 0 and \
+        (cur_it % (args.overlay_every + args.overlay_offset)) == 0:
         re_average_z(args)
 
     drawer.clip_z()    
@@ -773,17 +767,17 @@ imagenet_templates = [
 ]
 
 def do_run(args):
-    global i
+    global cur_iteration
 
-    i = 0
+    cur_iteration = 0
     try:
         with tqdm() as pbar:
             while True:
                 try:
-                    train(args, i)
-                    if i == args.iterations:
+                    train(args, cur_iteration)
+                    if cur_iteration == args.iterations:
                         break
-                    i += 1
+                    cur_iteration += 1
                     pbar.update()
                 except RuntimeError as e:
                     print("Oops: runtime error: ", e)
@@ -796,11 +790,11 @@ def do_run(args):
         do_video(settings)
 
 def do_video(args):
-    global i
+    global cur_iteration
 
     # Video generation
     init_frame = 1 # This is the frame where the video will start
-    last_frame = i # You can change i to the number of the last frame you want to generate. It will raise an error if that number of frames does not exist.
+    last_frame = cur_iteration # You can change to the number of the last frame you want to generate. It will raise an error if that number of frames does not exist.
 
     min_fps = 10
     max_fps = 60
