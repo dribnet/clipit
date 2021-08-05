@@ -7,6 +7,8 @@ import sys
 sys.path.append('taming-transformers')
 import os.path
 import torch
+from torch.nn import functional as F
+from torchvision.transforms import functional as TF
 
 from omegaconf import OmegaConf
 from taming.models import cond_transformer, vqgan
@@ -31,6 +33,39 @@ vqgan_checkpoint_table = {
     "wikiart_16384": 'http://mirror.io.community/blob/vqgan/wikiart_16384.ckpt',
     "sflckr": 'https://heibox.uni-heidelberg.de/d/73487ab6e5314cb5adba/files/?p=%2Fcheckpoints%2Flast.ckpt&dl=1'
 }
+
+class ReplaceGrad(torch.autograd.Function):
+    @staticmethod
+    def forward(ctx, x_forward, x_backward):
+        ctx.shape = x_backward.shape
+        return x_forward
+
+    @staticmethod
+    def backward(ctx, grad_in):
+        return None, grad_in.sum_to_size(ctx.shape)
+
+replace_grad = ReplaceGrad.apply
+
+def vector_quantize(x, codebook):
+    d = x.pow(2).sum(dim=-1, keepdim=True) + codebook.pow(2).sum(dim=1) - 2 * x @ codebook.T
+    indices = d.argmin(-1)
+    x_q = F.one_hot(indices, codebook.shape[0]).to(d.dtype) @ codebook
+    return replace_grad(x_q, x)
+
+class ClampWithGrad(torch.autograd.Function):
+    @staticmethod
+    def forward(ctx, input, min, max):
+        ctx.min = min
+        ctx.max = max
+        ctx.save_for_backward(input)
+        return input.clamp(min, max)
+
+    @staticmethod
+    def backward(ctx, grad_in):
+        input, = ctx.saved_tensors
+        return grad_in * (grad_in * (input - input.clamp(ctx.min, ctx.max)) >= 0), None, None
+
+clamp_with_grad = ClampWithGrad.apply
 
 class VqganDrawer(DrawingInterface):
     def load_model(self, config_path, checkpoint_path, device):
@@ -84,6 +119,30 @@ class VqganDrawer(DrawingInterface):
     def init_from_tensor(self, init_tensor):
         self.z, *_ = self.model.encode(init_tensor)        
         self.z.requires_grad_(True)
+
+    def reapply_from_tensor(self, new_tensor):
+        new_z, *_ = self.model.encode(new_tensor)        
+        with torch.no_grad():
+            self.z.copy_(new_z)
+
+    def get_z_from_tensor(self, ref_tensor):
+        z_ref, *_ = self.model.encode(init_tensor)
+        return z_ref
+
+    def get_num_resolutions(self):
+        return self.model.decoder.num_resolutions
+
+    def synth(self):
+        if self.gumbel:
+            z_q = vector_quantize(self.z.movedim(1, 3), self.model.quantize.embed.weight).movedim(3, 1)       # Vector quantize
+        else:
+            z_q = vector_quantize(self.z.movedim(1, 3), self.model.quantize.embedding.weight).movedim(3, 1)
+        return clamp_with_grad(self.model.decode(z_q).add(1).div(2), 0, 1)
+
+    @torch.no_grad()
+    def to_image(self):
+        out = self.synth()
+        return TF.to_pil_image(out[0].cpu())
 
     def clip_z(self):
         with torch.no_grad():

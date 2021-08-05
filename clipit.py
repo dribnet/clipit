@@ -143,30 +143,6 @@ def random_gradient_image(w,h):
     return random_image
 
 
-
-# Not used?
-def resample(input, size, align_corners=True):
-    n, c, h, w = input.shape
-    dh, dw = size
-
-    input = input.view([n * c, 1, h, w])
-
-    if dh < h:
-        kernel_h = lanczos(ramp(dh / h, 2), 2).to(input.device, input.dtype)
-        pad_h = (kernel_h.shape[0] - 1) // 2
-        input = F.pad(input, (0, 0, pad_h, pad_h), 'reflect')
-        input = F.conv2d(input, kernel_h[None, None, :, None])
-
-    if dw < w:
-        kernel_w = lanczos(ramp(dw / w, 2), 2).to(input.device, input.dtype)
-        pad_w = (kernel_w.shape[0] - 1) // 2
-        input = F.pad(input, (pad_w, pad_w, 0, 0), 'reflect')
-        input = F.conv2d(input, kernel_w[None, None, None, :])
-
-    input = input.view([n, c, h, w])
-    return F.interpolate(input, size, mode='bicubic', align_corners=align_corners)
-
-
 class ReplaceGrad(torch.autograd.Function):
     @staticmethod
     def forward(ctx, x_forward, x_backward):
@@ -178,29 +154,6 @@ class ReplaceGrad(torch.autograd.Function):
         return None, grad_in.sum_to_size(ctx.shape)
 
 replace_grad = ReplaceGrad.apply
-
-
-class ClampWithGrad(torch.autograd.Function):
-    @staticmethod
-    def forward(ctx, input, min, max):
-        ctx.min = min
-        ctx.max = max
-        ctx.save_for_backward(input)
-        return input.clamp(min, max)
-
-    @staticmethod
-    def backward(ctx, grad_in):
-        input, = ctx.saved_tensors
-        return grad_in * (grad_in * (input - input.clamp(ctx.min, ctx.max)) >= 0), None, None
-
-clamp_with_grad = ClampWithGrad.apply
-
-
-def vector_quantize(x, codebook):
-    d = x.pow(2).sum(dim=-1, keepdim=True) + codebook.pow(2).sum(dim=1) - 2 * x @ codebook.T
-    indices = d.argmin(-1)
-    x_q = F.one_hot(indices, codebook.shape[0]).to(d.dtype) @ codebook
-    return replace_grad(x_q, x)
 
 
 def spherical_dist_loss(x, y):
@@ -291,23 +244,6 @@ class MakeCutouts(nn.Module):
         augmentations.append(K.ColorJitter(hue=0.1, saturation=0.1, p=0.8, return_transform=True))
         self.augs = nn.Sequential(*augmentations)
 
-        # self.augs = nn.Sequential(
-        #     # K.RandomHorizontalFlip(p=0.5),				# NR: add augmentation options
-        #     # K.RandomVerticalFlip(p=0.5),
-        #     # K.RandomSolarize(0.01, 0.01, p=0.7),
-        #     # K.RandomSharpness(0.3,p=0.4),
-        #     # K.RandomResizedCrop(size=(self.cut_size,self.cut_size), scale=(0.1,1),  ratio=(0.75,1.333), cropping_mode='resample', p=0.5, return_transform=True),
-        #     K.RandomCrop(size=(self.cut_size,self.cut_size), p=1.0),
-            
-        #     # K.RandomAffine(degrees=15, translate=0.1, p=0.7, padding_mode='border', return_transform=True),
-
-        #     # MyRandomPerspective(distortion_scale=0.40, p=0.7, return_transform=True),
-        #     # K.RandomResizedCrop(size=(self.cut_size,self.cut_size), scale=(0.15,0.80),  ratio=(0.75,1.333), cropping_mode='resample', p=0.7, return_transform=True),
-        #     K.ColorJitter(hue=0.1, saturation=0.1, p=0.8, return_transform=True),
-
-        #     # K.RandomErasing((.1, .4), (.3, 1/.3), same_on_batch=True, p=0.7, return_transform=True),
-        #     )
-            
         self.noise_fac = 0.1
         
         # Pooling
@@ -331,13 +267,6 @@ class MakeCutouts(nn.Module):
             # print("Mask indexes ", mask_indexes)
 
         for _ in range(self.cutn):
-            # size = int(torch.rand([])**self.cut_pow * (max_size - min_size) + min_size)
-            # offsetx = torch.randint(0, sideX - size + 1, ())
-            # offsety = torch.randint(0, sideY - size + 1, ())
-            # cutout = input[:, :, offsety:offsety + size, offsetx:offsetx + size]
-            # cutouts.append(resample(cutout, (self.cut_size, self.cut_size)))
-            # cutout = transforms.Resize(size=(self.cut_size, self.cut_size))(input)
-            
             # Pooling
             cutout = (self.av_pool(input) + self.max_pool(input))/2
 
@@ -362,14 +291,14 @@ class MakeCutouts(nn.Module):
             # batch = self.transforms @ torch.cat(cutouts, dim=0)
             batch = kornia.geometry.transform.warp_perspective(torch.cat(cutouts, dim=0), self.transforms,
                 (self.cut_size, self.cut_size), padding_mode=global_padding_mode)
-            if i < 4:
-                for j in range(4):
-                    TF.to_pil_image(batch[j].cpu()).save(f"cached_im_{i:02d}_{j:02d}_{spot}.png")
+            # if i < 4:
+            #     for j in range(4):
+            #         TF.to_pil_image(batch[j].cpu()).save(f"cached_im_{i:02d}_{j:02d}_{spot}.png")
         else:
             batch, self.transforms = self.augs(torch.cat(cutouts, dim=0))
-            if i < 4:
-                for j in range(4):
-                    TF.to_pil_image(batch[j].cpu()).save(f"live_im_{i:02d}_{j:02d}_{spot}.png")
+            # if i < 4:
+            #     for j in range(4):
+            #         TF.to_pil_image(batch[j].cpu()).save(f"live_im_{i:02d}_{j:02d}_{spot}.png")
 
         # print(batch.shape, self.transforms.shape)
         
@@ -393,11 +322,11 @@ def wget_file(url, out):
         print("Ignoring non-zero exit: ", output)
 
 def do_init(args):
-    global model, opt, perceptors, normalize, cutoutsTable, cutoutSizeTable
+    global opt, perceptors, normalize, cutoutsTable, cutoutSizeTable
     global z_orig, z_targets, z_labels, init_image_tensor
     global gside_X, gside_Y, overlay_image_rgba
     global pmsTable, pImages, device, spotPmsTable, spotOffPmsTable
-    global gumbel, drawer
+    global drawer
 
     # Do it (init that is)
     device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
@@ -415,11 +344,10 @@ def do_init(args):
 
     drawer = VqganDrawer()
     drawer.load_model(vqgan_config, vqgan_checkpoint, device)
-    model = drawer.model
-    gumbel = drawer.gumbel
+    num_resolutions = drawer.get_num_resolutions()
 
     jit = True if float(torch.__version__[:3]) < 1.8 else False
-    f = 2**(model.decoder.num_resolutions - 1)
+    f = 2**(num_resolutions - 1)
 
     toksX, toksY = args.size[0] // f, args.size[1] // f
     sideX, sideY = toksX * f, toksY * f
@@ -505,7 +433,7 @@ def do_init(args):
             target_image_rgb = target_image_rgb.resize((sideX, sideY), Image.LANCZOS)
             target_image_tensor = TF.to_tensor(target_image_rgb)
             target_image_tensor = target_image_tensor.to(device).unsqueeze(0) * 2 - 1
-            z_target, *_ = model.encode(target_image_tensor)
+            z_target = drawer.get_z_from_tensor(target_image_tensor)
             z_targets.append(z_target)
 
     if args.image_labels is not None:
@@ -518,7 +446,7 @@ def do_init(args):
             image_label_rgb = image_label_rgb.resize((sideX, sideY), Image.LANCZOS)
             image_label_rgb_tensor = TF.to_tensor(image_label_rgb)
             image_label_rgb_tensor = image_label_rgb_tensor.to(device).unsqueeze(0) * 2 - 1
-            z_label, *_ = model.encode(image_label_rgb_tensor)
+            z_label = drawer.get_z_from_tensor(image_label_rgb_tensor)
             cur_labels.append(z_label)
         image_embeddings = torch.stack(cur_labels)
         print("Processing labels: ", image_embeddings.shape)
@@ -586,15 +514,11 @@ def do_init(args):
         pil_image = img.convert('RGB')
         img = resize_image(pil_image, (sideX, sideY))
         pImages.append(TF.to_tensor(img).unsqueeze(0).to(device))
-        # batch = make_cutouts(TF.to_tensor(img).unsqueeze(0).to(device))
-        # embed = perceptor.encode_image(normalize(batch)).float()
-        # pMs.append(Prompt(embed, weight, stop).to(device))
 
     for seed, weight in zip(args.noise_prompt_seeds, args.noise_prompt_weights):
         gen = torch.Generator().manual_seed(seed)
         embed = torch.empty([1, perceptor.visual.output_dim]).normal_(generator=gen)
         pMs.append(Prompt(embed, weight).to(device))
-
 
     # Set the optimiser
     z = drawer.get_z();
@@ -612,7 +536,6 @@ def do_init(args):
         opt = AdamP([z], lr=args.step_size)		# LR=2+?
     elif args.optimiser == "RAdam":
         opt = RAdam([z], lr=args.step_size)		# LR=2+?
-
 
     # Output for the user
     print('Using device:', device)
@@ -640,19 +563,11 @@ def do_init(args):
     print('Using seed:', seed)
 
 
-def synth(z):
-    if gumbel:
-        z_q = vector_quantize(z.movedim(1, 3), model.quantize.embed.weight).movedim(3, 1)		# Vector quantize
-    else:
-        z_q = vector_quantize(z.movedim(1, 3), model.quantize.embedding.weight).movedim(3, 1)
-    return clamp_with_grad(model.decode(z_q).add(1).div(2), 0, 1)
-
 # dreaded globals (for now)
 z_orig = None
 z_targets = None
 z_labels = None
 opt = None
-model = None
 drawer = None
 perceptors = {}
 normalize = None
@@ -671,18 +586,13 @@ device=None
 i=None
 
 @torch.no_grad()
-def z_to_pil():
-    global drawer
-    out = synth(drawer.get_z())
-    return TF.to_pil_image(out[0].cpu())
-
-@torch.no_grad()
 def checkin(args, i, losses):
+    global drawer
     losses_str = ', '.join(f'{loss.item():g}' for loss in losses)
     tqdm.write(f'i: {i}, loss: {sum(losses).item():g}, losses: {losses_str}')
     info = PngImagePlugin.PngInfo()
     info.add_text('comment', f'{args.prompts}')
-    img = z_to_pil()
+    img = drawer.to_image()
     img.save(args.output, pnginfo=info)
     if IS_NOTEBOOK:
         display.display(display.Image(args.output))
@@ -692,8 +602,7 @@ def ascend_txt(args):
     global z_orig, z_targets, z_labels, init_image_tensor, drawer
     global pmsTable, spotPmsTable, spotOffPmsTable, global_padding_mode
 
-    z = drawer.get_z()
-    out = synth(z)
+    out = drawer.synth();
 
     result = []
 
@@ -768,21 +677,21 @@ def ascend_txt(args):
     # main init_weight uses spherical loss
     if args.target_images is not None:
         for z_target in z_targets:
-            f = z.reshape(1,-1)
+            f = drawer.get_z().reshape(1,-1)
             f2 = z_target.reshape(1,-1)
             cur_loss = spherical_dist_loss(f, f2) * args.target_image_weight
             result.append(cur_loss)
 
     if args.image_labels is not None:
         for z_label in z_labels:
-            f = z.reshape(1,-1)
+            f = drawer.get_z().reshape(1,-1)
             f2 = z_label.reshape(1,-1)
             cur_loss = spherical_dist_loss(f, f2) * args.image_label_weight
             result.append(cur_loss)
 
     # main init_weight uses spherical loss
     if args.init_weight:
-        f = z.reshape(1,-1)
+        f = drawer.get_z().reshape(1,-1)
         f2 = z_orig.reshape(1,-1)
         cur_loss = spherical_dist_loss(f, f2) * args.init_weight
         result.append(cur_loss)
@@ -806,7 +715,7 @@ def ascend_txt(args):
             result.append(cur_loss)
 
     if args.init_weight_cos:
-        f = z.reshape(1,-1)
+        f = drawer.get_z().reshape(1,-1)
         f2 = z_orig.reshape(1,-1)
         y = torch.ones_like(f[0])
         cur_loss = F.cosine_embedding_loss(f, f2, y) * args.init_weight_cos
@@ -820,8 +729,8 @@ def ascend_txt(args):
     return result
 
 def re_average_z(args):
-    global z, gside_X, gside_Y
-    global model, device
+    global gside_X, gside_Y
+    global device, drawer
 
     # old_z = z.clone()
     cur_z_image = z_to_pil()
@@ -831,12 +740,7 @@ def re_average_z(args):
         cur_z_image.paste(overlay_image_rgba, (0, 0), overlay_image_rgba)
         cur_z_image.save("overlaid.png")
     cur_z_image = cur_z_image.resize((gside_X, gside_Y), Image.LANCZOS)
-    new_z, *_ = model.encode(TF.to_tensor(cur_z_image).to(device).unsqueeze(0) * 2 - 1)
-    # t_dist = F.pairwise_distance(new_z, old_z)
-    with torch.no_grad():
-        z.copy_(new_z)
-    # with torch.no_grad():
-    #     z.copy_(z.maximum(z_min).minimum(z_max))
+    drawer.reapply_from_tensor(TF.to_tensor(cur_z_image).to(device).unsqueeze(0) * 2 - 1)
 
 # torch.autograd.set_detect_anomaly(True)
 
@@ -982,7 +886,7 @@ def setup_parser():
     vq_parser.add_argument("-cuts", "--num_cuts", type=int, help="Number of cuts", default=None, dest='num_cuts')
     vq_parser.add_argument("-cutp", "--cut_power", type=float, help="Cut power", default=1., dest='cut_pow')
     vq_parser.add_argument("-sd",   "--seed", type=int, help="Seed", default=None, dest='seed')
-    vq_parser.add_argument("-opt",  "--optimiser", type=str, help="Optimiser (Adam, AdamW, Adagrad, Adamax, DiffGrad, AdamP or RAdam)", default='Adam', dest='optimiser')
+    vq_parser.add_argument("-opt",  "--optimiser", type=str, help="Optimiser (Adam, AdamW, Adagrad, Adamax, DiffGrad, AdamP or RAdam)", default='AdamP', dest='optimiser')
     vq_parser.add_argument("-o",    "--output", type=str, help="Output file", default="output.png", dest='output')
     vq_parser.add_argument("-vid",  "--video", type=bool, help="Create video frames?", default=False, dest='make_video')
     vq_parser.add_argument("-d",    "--deterministic", type=bool, help="Enable cudnn.deterministic?", default=False, dest='cudnn_determinism')
