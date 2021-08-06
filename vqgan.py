@@ -105,6 +105,9 @@ class VqganDrawer(DrawingInterface):
             self.z_min = model.quantize.embedding.weight.min(dim=0).values[None, :, None, None]
             self.z_max = model.quantize.embedding.weight.max(dim=0).values[None, :, None, None]
 
+    def get_opts(self):
+        return None
+
     def rand_init(self, toksX, toksY):
         # legacy init
         one_hot = F.one_hot(torch.randint(self.n_toks, [toksY * toksX], device=self.device), n_toks).float()
@@ -132,7 +135,7 @@ class VqganDrawer(DrawingInterface):
     def get_num_resolutions(self):
         return self.model.decoder.num_resolutions
 
-    def synth(self):
+    def synth(self, cur_iteration):
         if self.gumbel:
             z_q = vector_quantize(self.z.movedim(1, 3), self.model.quantize.embed.weight).movedim(3, 1)       # Vector quantize
         else:
@@ -151,6 +154,8 @@ class VqganDrawer(DrawingInterface):
     def get_z(self):
         return self.z
 
+    def get_z_copy(self):
+        return self.z.clone()
         # return model, gumbel
 
 ### EXTERNAL INTERFACE

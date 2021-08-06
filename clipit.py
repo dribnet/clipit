@@ -40,6 +40,10 @@ global_padding_mode = 'reflection'
 global_aspect_width = 1
 
 from vqgan import VqganDrawer
+try:
+    from clipdrawer2 import ClipDrawer
+except ImportError:
+    print('clipdrawer not imported')
 
 # https://stackoverflow.com/a/39662359
 def isnotebook():
@@ -322,7 +326,7 @@ def wget_file(url, out):
         print("Ignoring non-zero exit: ", output)
 
 def do_init(args):
-    global opt, perceptors, normalize, cutoutsTable, cutoutSizeTable
+    global opts, perceptors, normalize, cutoutsTable, cutoutSizeTable
     global z_orig, z_targets, z_labels, init_image_tensor
     global gside_X, gside_Y, overlay_image_rgba
     global pmsTable, pImages, device, spotPmsTable, spotOffPmsTable
@@ -342,7 +346,10 @@ def do_init(args):
         if not os.path.exists(vqgan_checkpoint):
             wget_file(vqgan_checkpoint_table[args.vqgan_model], vqgan_checkpoint)
 
-    drawer = VqganDrawer()
+    if args.use_clipdraw:
+        drawer = ClipDrawer(args.size[0], args.size[1], args.strokes)
+    else:
+        drawer = VqganDrawer()
     drawer.load_model(vqgan_config, vqgan_checkpoint, device)
     num_resolutions = drawer.get_num_resolutions()
     # print("-----------> NUMR ", num_resolutions)
@@ -456,7 +463,7 @@ def do_init(args):
         image_embeddings /= image_embeddings.norm()
         z_labels.append(image_embeddings.unsqueeze(0))
 
-    z_orig = drawer.get_z().clone()
+    z_orig = drawer.get_z_copy()
 
     pmsTable = {}
     spotPmsTable = {}
@@ -521,22 +528,28 @@ def do_init(args):
         embed = torch.empty([1, perceptor.visual.output_dim]).normal_(generator=gen)
         pMs.append(Prompt(embed, weight).to(device))
 
-    # Set the optimiser
-    z = drawer.get_z();
-    if args.optimiser == "Adam":
-        opt = optim.Adam([z], lr=args.step_size)		# LR=0.1
-    elif args.optimiser == "AdamW":
-        opt = optim.AdamW([z], lr=args.step_size)		# LR=0.2
-    elif args.optimiser == "Adagrad":
-        opt = optim.Adagrad([z], lr=args.step_size)	# LR=0.5+
-    elif args.optimiser == "Adamax":
-        opt = optim.Adamax([z], lr=args.step_size)	# LR=0.5+?
-    elif args.optimiser == "DiffGrad":
-        opt = DiffGrad([z], lr=args.step_size)		# LR=2+?
-    elif args.optimiser == "AdamP":
-        opt = AdamP([z], lr=args.step_size)		# LR=2+?
-    elif args.optimiser == "RAdam":
-        opt = RAdam([z], lr=args.step_size)		# LR=2+?
+    opts = drawer.get_opts()
+    if opts == None:
+        # legacy
+
+        # Set the optimiser
+        z = drawer.get_z();
+        if args.optimiser == "Adam":
+            opt = optim.Adam([z], lr=args.step_size)		# LR=0.1
+        elif args.optimiser == "AdamW":
+            opt = optim.AdamW([z], lr=args.step_size)		# LR=0.2
+        elif args.optimiser == "Adagrad":
+            opt = optim.Adagrad([z], lr=args.step_size)	# LR=0.5+
+        elif args.optimiser == "Adamax":
+            opt = optim.Adamax([z], lr=args.step_size)	# LR=0.5+?
+        elif args.optimiser == "DiffGrad":
+            opt = DiffGrad([z], lr=args.step_size)		# LR=2+?
+        elif args.optimiser == "AdamP":
+            opt = AdamP([z], lr=args.step_size)		# LR=2+?
+        elif args.optimiser == "RAdam":
+            opt = RAdam([z], lr=args.step_size)		# LR=2+?
+
+        opts = [opt]
 
     # Output for the user
     print('Using device:', device)
@@ -568,7 +581,7 @@ def do_init(args):
 z_orig = None
 z_targets = None
 z_labels = None
-opt = None
+opts = None
 drawer = None
 perceptors = {}
 normalize = None
@@ -602,7 +615,7 @@ def ascend_txt(args):
     global z_orig, z_targets, z_labels, init_image_tensor, drawer
     global pmsTable, spotPmsTable, spotOffPmsTable, global_padding_mode
 
-    out = drawer.synth();
+    out = drawer.synth(cur_iteration);
 
     result = []
 
@@ -740,7 +753,9 @@ def re_average_z(args):
 
 def train(args, cur_it):
     global drawer;
-    opt.zero_grad(set_to_none=True)
+    for opt in opts:
+        # opt.zero_grad(set_to_none=True)
+        opt.zero_grad()
     lossAll = ascend_txt(args)
     
     if cur_it % args.display_freq == 0:
@@ -748,7 +763,8 @@ def train(args, cur_it):
 
     loss = sum(lossAll)
     loss.backward()
-    opt.step()
+    for opt in opts:
+        opt.step()
 
     if args.overlay_every and cur_it != 0 and \
         (cur_it % (args.overlay_every + args.overlay_offset)) == 0:
@@ -884,6 +900,8 @@ def setup_parser():
     vq_parser.add_argument("-o",    "--output", type=str, help="Output file", default="output.png", dest='output')
     vq_parser.add_argument("-vid",  "--video", type=bool, help="Create video frames?", default=False, dest='make_video')
     vq_parser.add_argument("-d",    "--deterministic", type=bool, help="Enable cudnn.deterministic?", default=False, dest='cudnn_determinism')
+    vq_parser.add_argument("-cd",   "--use_clipdraw", type=bool, help="Use clipdraw", default=False, dest='use_clipdraw')
+    vq_parser.add_argument("-st",   "--strokes", type=int, help="clipdraw strokes", default=1024, dest='strokes')
 
     return vq_parser    
 
