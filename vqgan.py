@@ -144,7 +144,7 @@ class VqganDrawer(DrawingInterface):
 
     @torch.no_grad()
     def to_image(self):
-        out = self.synth()
+        out = self.synth(None)
         return TF.to_pil_image(out[0].cpu())
 
     def clip_z(self):
