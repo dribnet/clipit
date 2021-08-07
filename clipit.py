@@ -41,7 +41,7 @@ global_aspect_width = 1
 
 from vqgan import VqganDrawer
 try:
-    from clipdrawer2 import ClipDrawer
+    from clipdrawer_pixel import ClipDrawer
 except ImportError:
     print('clipdrawer not imported')
 
@@ -327,7 +327,7 @@ def wget_file(url, out):
 
 def do_init(args):
     global opts, perceptors, normalize, cutoutsTable, cutoutSizeTable
-    global z_orig, z_targets, z_labels, init_image_tensor
+    global z_orig, z_targets, z_labels, init_image_tensor, target_image_tensor
     global gside_X, gside_Y, overlay_image_rgba
     global pmsTable, pImages, device, spotPmsTable, spotOffPmsTable
     global drawer
@@ -375,6 +375,7 @@ def do_init(args):
             cutoutsTable[cut_size] = make_cutouts
 
     init_image_tensor = None
+    target_image_tensor = None
 
     # Image initialisation
     if args.init_image or args.init_noise:
@@ -439,8 +440,8 @@ def do_init(args):
             target_image = Image.open(target_image)
             target_image_rgb = target_image.convert('RGB')
             target_image_rgb = target_image_rgb.resize((sideX, sideY), Image.LANCZOS)
-            target_image_tensor = TF.to_tensor(target_image_rgb)
-            target_image_tensor = target_image_tensor.to(device).unsqueeze(0) * 2 - 1
+            target_image_tensor_local = TF.to_tensor(target_image_rgb)
+            target_image_tensor = target_image_tensor_local.to(device).unsqueeze(0) * 2 - 1
             z_target = drawer.get_z_from_tensor(target_image_tensor)
             z_targets.append(z_target)
 
@@ -588,6 +589,7 @@ normalize = None
 cutoutsTable = {}
 cutoutSizeTable = {}
 init_image_tensor = None
+target_image_tensor = None
 pmsTable = None
 spotPmsTable = None 
 spotOffPmsTable = None 
@@ -612,7 +614,7 @@ def checkin(args, iter, losses):
 
 def ascend_txt(args):
     global cur_iteration, perceptors, normalize, cutoutsTable, cutoutSizeTable
-    global z_orig, z_targets, z_labels, init_image_tensor, drawer
+    global z_orig, z_targets, z_labels, init_image_tensor, target_image_tensor, drawer
     global pmsTable, spotPmsTable, spotOffPmsTable, global_padding_mode
 
     out = drawer.synth(cur_iteration);
@@ -688,11 +690,18 @@ def ascend_txt(args):
         make_cutouts.transforms = None
 
     # main init_weight uses spherical loss
-    if args.target_images is not None:
+    if args.target_images is not None and args.target_image_weight > 0:
         for z_target in z_targets:
             f = drawer.get_z().reshape(1,-1)
             f2 = z_target.reshape(1,-1)
             cur_loss = spherical_dist_loss(f, f2) * args.target_image_weight
+            result.append(cur_loss)
+
+    if args.target_weight_pix:
+        if target_image_tensor is None:
+            print("OOPS TIT is 0")
+        else:
+            cur_loss = F.l1_loss(out, target_image_tensor) * args.target_weight_pix
             result.append(cur_loss)
 
     if args.image_labels is not None:
@@ -882,6 +891,7 @@ def setup_parser():
     vq_parser.add_argument("-in",   "--init_noise", type=str, help="Initial noise image (pixels or gradient)", default="pixels", dest='init_noise')
     vq_parser.add_argument("-ti",   "--target_images", type=str, help="Target images", default=None, dest='target_images')
     vq_parser.add_argument("-tiw",  "--target_image_weight", type=float, help="Target images weight", default=1.0, dest='target_image_weight')
+    vq_parser.add_argument("-twp",  "--target_weight_pix", type=float, help="Target weight pix loss", default=0., dest='target_weight_pix')
     vq_parser.add_argument("-iw",   "--init_weight", type=float, help="Initial weight (main=spherical)", default=None, dest='init_weight')
     vq_parser.add_argument("-iwd",  "--init_weight_dist", type=float, help="Initial weight dist loss", default=0., dest='init_weight_dist')
     vq_parser.add_argument("-iwc",  "--init_weight_cos", type=float, help="Initial weight cos loss", default=0., dest='init_weight_cos')
