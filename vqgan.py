@@ -154,6 +154,10 @@ class VqganDrawer(DrawingInterface):
     def get_z(self):
         return self.z
 
+    def set_z(self, new_z):
+        with torch.no_grad():
+            return self.z.copy_(new_z)
+
     def get_z_copy(self):
         return self.z.clone()
         # return model, gumbel

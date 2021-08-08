@@ -599,21 +599,32 @@ gside_Y=None
 overlay_image_rgba=None
 device=None
 cur_iteration=None
+cur_anim_index=None
+anim_output_files=[]
+anim_cur_zs=[]
+anim_next_zs=[]
 
 @torch.no_grad()
 def checkin(args, iter, losses):
     global drawer
     losses_str = ', '.join(f'{loss.item():g}' for loss in losses)
-    tqdm.write(f'iter: {iter}, loss: {sum(losses).item():g}, losses: {losses_str}')
+    writestr = f'iter: {iter}, loss: {sum(losses).item():g}, losses: {losses_str}'
+    if args.animation_dir is not None:
+        writestr = f'anim: {cur_anim_index}/{len(anim_output_files)} {writestr}'
+    tqdm.write(writestr)
     info = PngImagePlugin.PngInfo()
     info.add_text('comment', f'{args.prompts}')
     img = drawer.to_image()
-    img.save(args.output, pnginfo=info)
+    if cur_anim_index is None:
+        outfile = args.output
+    else:
+        outfile = anim_output_files[cur_anim_index]
+    img.save(outfile, pnginfo=info)
     if IS_NOTEBOOK:
-        display.display(display.Image(args.output))
+        display.display(display.Image(outfile))
 
 def ascend_txt(args):
-    global cur_iteration, perceptors, normalize, cutoutsTable, cutoutSizeTable
+    global cur_iteration, cur_anim_index, perceptors, normalize, cutoutsTable, cutoutSizeTable
     global z_orig, z_targets, z_labels, init_image_tensor, target_image_tensor, drawer
     global pmsTable, spotPmsTable, spotOffPmsTable, global_padding_mode
 
@@ -691,7 +702,11 @@ def ascend_txt(args):
 
     # main init_weight uses spherical loss
     if args.target_images is not None and args.target_image_weight > 0:
-        for z_target in z_targets:
+        if cur_anim_index is None:
+            cur_z_targets = z_targets
+        else:
+            cur_z_targets = [ z_targets[cur_anim_index] ]
+        for z_target in cur_z_targets:
             f = drawer.get_z().reshape(1,-1)
             f2 = z_target.reshape(1,-1)
             cur_loss = spherical_dist_loss(f, f2) * args.target_image_weight
@@ -767,7 +782,7 @@ def train(args, cur_it):
         opt.zero_grad()
     lossAll = ascend_txt(args)
     
-    if cur_it % args.display_freq == 0:
+    if cur_it % args.save_every == 0:
         checkin(args, cur_it, lossAll)
 
     loss = sum(lossAll)
@@ -792,24 +807,76 @@ imagenet_templates = [
 ]
 
 def do_run(args):
-    global cur_iteration
+    global cur_iteration, cur_anim_index
+    global anim_cur_zs, anim_next_zs, anim_output_files
 
     cur_iteration = 0
-    try:
+
+    if args.animation_dir is not None:
+        # we already have z_targets. setup some sort of global ring
+        # we need something like
+        # copies of all the current z's (they can all start off all as copies)
+        # a list of all the output filenames
+        #
+        if not os.path.exists(args.animation_dir):
+            os.mkdir(args.animation_dir)
+        filelist = real_glob(args.target_images)
+        num_anim_frames = len(filelist)
+        for target_image in filelist:
+            basename = os.path.basename(target_image)
+            target_output = os.path.join(args.animation_dir, basename)
+            anim_output_files.append(target_output)
+        for i in range(num_anim_frames):
+            cur_z = drawer.get_z_copy()
+            anim_cur_zs.append(cur_z)
+            anim_next_zs.append(None)
+
+        step_iteration = 0
+
         with tqdm() as pbar:
             while True:
-                try:
-                    train(args, cur_iteration)
-                    if cur_iteration == args.iterations:
-                        break
-                    cur_iteration += 1
-                    pbar.update()
-                except RuntimeError as e:
-                    print("Oops: runtime error: ", e)
-                    print("Try reducing --num-cuts to save memory")
-                    raise e
-    except KeyboardInterrupt:
-        pass
+                cur_images = []
+                for i in range(num_anim_frames):
+                    # do merge frames here from cur->next when we are ready to be fancy
+                    cur_anim_index = i
+                    # anim_cur_zs[cur_anim_index] = anim_next_zs[cur_anim_index]
+                    cur_iteration = step_iteration
+                    drawer.set_z(anim_cur_zs[cur_anim_index])
+                    for j in range(args.save_every):
+                        train(args, cur_iteration)
+                        cur_iteration += 1
+                        pbar.update()
+                    # anim_next_zs[cur_anim_index] = drawer.get_z_copy()
+                    cur_images.append(drawer.to_image())
+                step_iteration = step_iteration + args.save_every
+                if step_iteration >= args.iterations:
+                    break
+                # compute the next round of cur_zs here from all the next_zs
+                for i in range(num_anim_frames):
+                    prev_i = (i + num_anim_frames - 1) % num_anim_frames
+                    base_image = cur_images[i].copy()
+                    prev_image = cur_images[prev_i].copy().convert('RGBA')
+                    prev_image.putalpha(args.animation_alpha)
+                    base_image.paste(prev_image, (0, 0), prev_image)
+                    # base_image.save(f"overlaid_{i:02d}.png")
+                    drawer.reapply_from_tensor(TF.to_tensor(base_image).to(device).unsqueeze(0) * 2 - 1)
+                    anim_cur_zs[i] = drawer.get_z_copy()
+    else:
+        try:
+            with tqdm() as pbar:
+                while True:
+                    try:
+                        train(args, cur_iteration)
+                        if cur_iteration == args.iterations:
+                            break
+                        cur_iteration += 1
+                        pbar.update()
+                    except RuntimeError as e:
+                        print("Oops: runtime error: ", e)
+                        print("Try reducing --num-cuts to save memory")
+                        raise e
+        except KeyboardInterrupt:
+            pass
 
     if args.make_video:
         do_video(settings)
@@ -876,7 +943,7 @@ def setup_parser():
     vq_parser.add_argument("-il",   "--image_labels", type=str, help="Image prompts", default=None, dest='image_labels')
     vq_parser.add_argument("-ilw",  "--image_label_weight", type=float, help="Weight for image prompt", default=1.0, dest='image_label_weight')
     vq_parser.add_argument("-i",    "--iterations", type=int, help="Number of iterations", default=None, dest='iterations')
-    vq_parser.add_argument("-se",   "--save_every", type=int, help="Save image iterations", default=50, dest='display_freq')
+    vq_parser.add_argument("-se",   "--save_every", type=int, help="Save image iterations", default=50, dest='save_every')
     vq_parser.add_argument("-ove",  "--overlay_every", type=int, help="Overlay image iterations", default=None, dest='overlay_every')
     vq_parser.add_argument("-ovo",  "--overlay_offset", type=int, help="Overlay image iteration offset", default=0, dest='overlay_offset')
     vq_parser.add_argument("-ovi",  "--overlay_image", type=str, help="Overlay image (if not init)", default=None, dest='overlay_image')
@@ -892,6 +959,8 @@ def setup_parser():
     vq_parser.add_argument("-ti",   "--target_images", type=str, help="Target images", default=None, dest='target_images')
     vq_parser.add_argument("-tiw",  "--target_image_weight", type=float, help="Target images weight", default=1.0, dest='target_image_weight')
     vq_parser.add_argument("-twp",  "--target_weight_pix", type=float, help="Target weight pix loss", default=0., dest='target_weight_pix')
+    vq_parser.add_argument("-anim", "--animation_dir", type=str, help="Animation output dir", default=None, dest='animation_dir')    
+    vq_parser.add_argument("-ana",  "--animation_alpha", type=int, help="Forward blend for consistency", default=128, dest='animation_alpha')
     vq_parser.add_argument("-iw",   "--init_weight", type=float, help="Initial weight (main=spherical)", default=None, dest='init_weight')
     vq_parser.add_argument("-iwd",  "--init_weight_dist", type=float, help="Initial weight dist loss", default=0., dest='init_weight_dist')
     vq_parser.add_argument("-iwc",  "--init_weight_cos", type=float, help="Initial weight cos loss", default=0., dest='init_weight_cos')
