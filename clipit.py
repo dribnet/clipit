@@ -41,9 +41,13 @@ global_aspect_width = 1
 
 from vqgan import VqganDrawer
 try:
-    from clipdrawer_pixel import ClipDrawer
+    from clipdrawer import ClipDrawer
 except ImportError:
     print('clipdrawer not imported')
+try:
+    from pixeldrawer import PixelDrawer
+except ImportError:
+    print('pixeldrawer not imported')
 
 # https://stackoverflow.com/a/39662359
 def isnotebook():
@@ -348,6 +352,11 @@ def do_init(args):
 
     if args.use_clipdraw:
         drawer = ClipDrawer(args.size[0], args.size[1], args.strokes)
+    elif args.use_pixeldraw:
+        if global_aspect_width == 1:
+            drawer = PixelDrawer(args.size[0], args.size[1], [40, 40])
+        else:
+            drawer = PixelDrawer(args.size[0], args.size[1])   
     else:
         drawer = VqganDrawer()
     drawer.load_model(vqgan_config, vqgan_checkpoint, device)
@@ -981,6 +990,7 @@ def setup_parser():
     vq_parser.add_argument("-d",    "--deterministic", type=bool, help="Enable cudnn.deterministic?", default=False, dest='cudnn_determinism')
     vq_parser.add_argument("-cd",   "--use_clipdraw", type=bool, help="Use clipdraw", default=False, dest='use_clipdraw')
     vq_parser.add_argument("-st",   "--strokes", type=int, help="clipdraw strokes", default=1024, dest='strokes')
+    vq_parser.add_argument("-pd",   "--use_pixeldraw", type=bool, help="Use pixeldraw", default=False, dest='use_pixeldraw')
 
     return vq_parser    
 

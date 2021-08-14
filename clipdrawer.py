@@ -1,5 +1,7 @@
-# Originally made by Katherine Crowson (https://github.com/crowsonkb, https://twitter.com/RiversHaveWings)
-# The original BigGAN+CLIP method was by https://twitter.com/advadnoun
+# this is derived from ClipDraw code
+# CLIPDraw: Exploring Text-to-Drawing Synthesis through Language-Image Encoders
+# Kevin Frans, L.B. Soros, Olaf Witkowski
+# https://arxiv.org/abs/2106.14843
 
 from DrawingInterface import DrawingInterface
 

@@ -1,6 +1,3 @@
-# Originally made by Katherine Crowson (https://github.com/crowsonkb, https://twitter.com/RiversHaveWings)
-# The original BigGAN+CLIP method was by https://twitter.com/advadnoun
-
 from DrawingInterface import DrawingInterface
 
 import pydiffvg
@@ -18,22 +15,25 @@ import PIL.Image
 
 pydiffvg.set_print_timing(False)
 
-class ClipDrawer(DrawingInterface):
+class PixelDrawer(DrawingInterface):
     # num_rows = 90
     # num_cols = 160
-    # num_rows = 45
-    # num_cols = 80
+    num_rows = 45
+    num_cols = 80
     # num_rows = 36
     # num_cols = 64
-    num_rows = 40
-    num_cols = 40
+    # num_rows = 40
+    # num_cols = 40
     pixels = []
 
-    def __init__(self, width, height, ignore):
-       super(DrawingInterface, self).__init__()
+    def __init__(self, width, height, shape=None):
+        super(DrawingInterface, self).__init__()
 
-       self.canvas_width = width
-       self.canvas_height = height
+        self.canvas_width = width
+        self.canvas_height = height
+        if shape is not None:
+            self.num_rows, self.num_cols = shape
+
 
     def load_model(self, config_path, checkpoint_path, device):
         # gamma = 1.0
@@ -142,9 +142,3 @@ class ClipDrawer(DrawingInterface):
 
     def get_z_copy(self):
         return None
-
-### EXTERNAL INTERFACE
-### load_vqgan_model
-
-if __name__ == '__main__':
-    main()
