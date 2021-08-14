@@ -23,10 +23,10 @@ class ClipDrawer(DrawingInterface):
     # num_cols = 160
     # num_rows = 45
     # num_cols = 80
-    num_rows = 36
-    num_cols = 64
-    # num_rows = 40
-    # num_cols = 40
+    # num_rows = 36
+    # num_cols = 64
+    num_rows = 40
+    num_cols = 40
     pixels = []
 
     def __init__(self, width, height, ignore):
@@ -79,7 +79,7 @@ class ClipDrawer(DrawingInterface):
         # Optimizers
         # points_optim = torch.optim.Adam(points_vars, lr=1.0)
         # width_optim = torch.optim.Adam(stroke_width_vars, lr=0.1)
-        color_optim = torch.optim.Adam(color_vars, lr=0.01)
+        color_optim = torch.optim.Adam(color_vars, lr=0.02)
 
         self.img = img
         self.shapes = shapes 
