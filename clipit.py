@@ -611,8 +611,9 @@ def checkin(args, iter, losses):
     else:
         outfile = anim_output_files[cur_anim_index]
     img.save(outfile, pnginfo=info)
-    if IS_NOTEBOOK:
-        display.display(display.Image(outfile))
+    if IS_NOTEBOOK and iter % args.display_every == 0:
+        if cur_anim_index is None or cur_anim_index == 0:
+            display.display(display.Image(outfile))
 
 def ascend_txt(args):
     global cur_iteration, cur_anim_index, perceptors, normalize, cutoutsTable, cutoutSizeTable
@@ -934,7 +935,8 @@ def setup_parser():
     vq_parser.add_argument("-il",   "--image_labels", type=str, help="Image prompts", default=None, dest='image_labels')
     vq_parser.add_argument("-ilw",  "--image_label_weight", type=float, help="Weight for image prompt", default=1.0, dest='image_label_weight')
     vq_parser.add_argument("-i",    "--iterations", type=int, help="Number of iterations", default=None, dest='iterations')
-    vq_parser.add_argument("-se",   "--save_every", type=int, help="Save image iterations", default=50, dest='save_every')
+    vq_parser.add_argument("-se",   "--save_every", type=int, help="Save image iterations", default=20, dest='save_every')
+    vq_parser.add_argument("-de",   "--display_every", type=int, help="Display image iterations", default=20, dest='display_every')
     vq_parser.add_argument("-ove",  "--overlay_every", type=int, help="Overlay image iterations", default=None, dest='overlay_every')
     vq_parser.add_argument("-ovo",  "--overlay_offset", type=int, help="Overlay image iteration offset", default=0, dest='overlay_offset')
     vq_parser.add_argument("-ovi",  "--overlay_image", type=str, help="Overlay image (if not init)", default=None, dest='overlay_image')
