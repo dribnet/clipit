@@ -322,13 +322,6 @@ def resize_image(image, out_size):
     size = round((area * ratio)**0.5), round((area / ratio)**0.5)
     return image.resize(size, Image.LANCZOS)
 
-def wget_file(url, out):
-    try:
-        output = subprocess.check_output(['wget', '-O', out, url])
-    except subprocess.CalledProcessError as cpe:
-        output = e.output
-        print("Ignoring non-zero exit: ", output)
-
 def do_init(args):
     global opts, perceptors, normalize, cutoutsTable, cutoutSizeTable
     global z_orig, z_targets, z_labels, init_image_tensor, target_image_tensor
@@ -338,17 +331,6 @@ def do_init(args):
 
     # Do it (init that is)
     device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
-    if args.vqgan_config is not None:
-        vqgan_config = args.vqgan_config
-        vqgan_checkpoint = args.vqgan_checkpoint
-    else:
-        # the "vqgan_model" option also downloads if necessary
-        vqgan_config = f'models/vqgan_{args.vqgan_model}.yaml'
-        vqgan_checkpoint = f'models/vqgan_{args.vqgan_model}.ckpt'
-        if not os.path.exists(vqgan_config):
-            wget_file(vqgan_config_table[args.vqgan_model], vqgan_config)
-        if not os.path.exists(vqgan_checkpoint):
-            wget_file(vqgan_checkpoint_table[args.vqgan_model], vqgan_checkpoint)
 
     if args.use_clipdraw:
         drawer = ClipDrawer(args.size[0], args.size[1], args.strokes)
@@ -358,8 +340,8 @@ def do_init(args):
         else:
             drawer = PixelDrawer(args.size[0], args.size[1])   
     else:
-        drawer = VqganDrawer()
-    drawer.load_model(vqgan_config, vqgan_checkpoint, device)
+        drawer = VqganDrawer(args.vqgan_model)
+    drawer.load_model(args.vqgan_config, args.vqgan_checkpoint, device)
     num_resolutions = drawer.get_num_resolutions()
     # print("-----------> NUMR ", num_resolutions)
 

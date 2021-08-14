@@ -4,6 +4,7 @@
 from DrawingInterface import DrawingInterface
 
 import sys
+import subprocess
 sys.path.append('taming-transformers')
 import os.path
 import torch
@@ -33,6 +34,13 @@ vqgan_checkpoint_table = {
     "wikiart_16384": 'http://mirror.io.community/blob/vqgan/wikiart_16384.ckpt',
     "sflckr": 'https://heibox.uni-heidelberg.de/d/73487ab6e5314cb5adba/files/?p=%2Fcheckpoints%2Flast.ckpt&dl=1'
 }
+
+def wget_file(url, out):
+    try:
+        output = subprocess.check_output(['wget', '-O', out, url])
+    except subprocess.CalledProcessError as cpe:
+        output = e.output
+        print("Ignoring non-zero exit: ", output)
 
 class ReplaceGrad(torch.autograd.Function):
     @staticmethod
@@ -68,8 +76,24 @@ class ClampWithGrad(torch.autograd.Function):
 clamp_with_grad = ClampWithGrad.apply
 
 class VqganDrawer(DrawingInterface):
+    def __init__(self, vqgan_model):
+        super(DrawingInterface, self).__init__()
+        self.vqgan_model = vqgan_model
+
     def load_model(self, config_path, checkpoint_path, device):
         gumbel = False
+
+        if config_path is None:
+            config_path = f'models/vqgan_{self.vqgan_model}.yaml'
+
+        if checkpoint_path is None:
+            checkpoint_path = f'models/vqgan_{self.vqgan_model}.ckpt'
+
+        if not os.path.exists(config_path):
+            wget_file(vqgan_config_table[self.vqgan_model], config_path)
+        if not os.path.exists(checkpoint_path):
+            wget_file(vqgan_checkpoint_table[self.vqgan_model], checkpoint_path)
+
         config = OmegaConf.load(config_path)
         if config.model.target == 'taming.models.vqgan.VQModel':
             model = vqgan.VQModel(**config.model.params)
