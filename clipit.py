@@ -69,6 +69,7 @@ IS_NOTEBOOK = isnotebook()
 if IS_NOTEBOOK:
     from IPython import display
     from tqdm.notebook import tqdm
+    from IPython.display import clear_output
 else:
     from tqdm import tqdm
 
@@ -595,6 +596,25 @@ anim_output_files=[]
 anim_cur_zs=[]
 anim_next_zs=[]
 
+def make_gif(args, iter):
+    gif_output = os.path.join(args.animation_dir, "anim.gif")
+    if os.path.exists(gif_output):
+        os.remove(gif_output)
+    cmd = ['ffmpeg', '-framerate', '10', '-pattern_type', 'glob',
+           '-i', f"{args.animation_dir}/*_*.png", '-loop', '0', gif_output]
+    try:
+        output = subprocess.check_output(cmd)
+    except subprocess.CalledProcessError as cpe:
+        output = e.output
+        print("Ignoring non-zero exit: ", output)
+
+    return gif_output
+
+# !ffmpeg \
+#   -framerate 10 -pattern_type glob \
+#   -i '{animation_output}/*_*.png' \
+#   -loop 0 {animation_output}/final.gif
+
 @torch.no_grad()
 def checkin(args, iter, losses):
     global drawer
@@ -611,8 +631,14 @@ def checkin(args, iter, losses):
     else:
         outfile = anim_output_files[cur_anim_index]
     img.save(outfile, pnginfo=info)
+    if cur_anim_index == len(anim_output_files) - 1:
+        # save gif
+        gif_output = make_gif(args, iter)
+        if IS_NOTEBOOK and iter % args.display_every == 0:
+            clear_output()
+            display.display(display.Image(open(gif_output,'rb').read()))
     if IS_NOTEBOOK and iter % args.display_every == 0:
-        if cur_anim_index is None or cur_anim_index == 0:
+        if cur_anim_index is None or iter == 0:
             display.display(display.Image(outfile))
 
 def ascend_txt(args):
