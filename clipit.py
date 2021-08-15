@@ -983,6 +983,7 @@ widescreen_size = [200, 112]  # at the small size this becomes 192,112
 
 def process_args(vq_parser, namespace=None):
     global global_aspect_width
+    global cur_iteration, cur_anim_index, anim_output_files, anim_cur_zs, anim_next_zs;
 
     if namespace == None:
       # command line: use ARGV to get args
@@ -1105,6 +1106,13 @@ def process_args(vq_parser, namespace=None):
     if args.make_video:
         if not os.path.exists('steps'):
             os.mkdir('steps')
+
+    # reset global animation variables
+    cur_iteration=None
+    cur_anim_index=None
+    anim_output_files=[]
+    anim_cur_zs=[]
+    anim_next_zs=[]
 
     return args
 
