@@ -4,6 +4,6 @@
 | ------------- | ------------- |
 | Start Here  |  [![Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/dribnet/clipit/blob/future/demos/Start_Here.ipynb)  |
 | Swap Model  |  [![Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/dribnet/clipit/blob/master/demos/Swap_Model.ipynb)  |
-| Start Here  |  [![Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/dribnet/clipit/blob/future/demos/PixelDrawer.ipynb)  |
+| PixelDraw  |  [![Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/dribnet/clipit/blob/future/demos/PixelDrawer.ipynb)  |
 | Init Image  | Coming soon  |
 | Image Prompt  | Coming soon  |
