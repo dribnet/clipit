@@ -16,21 +16,17 @@ import PIL.Image
 pydiffvg.set_print_timing(False)
 
 class PixelDrawer(DrawingInterface):
-    # num_rows = 90
-    # num_cols = 160
     num_rows = 45
     num_cols = 80
-    # num_rows = 36
-    # num_cols = 64
-    # num_rows = 40
-    # num_cols = 40
+    do_mono = False
     pixels = []
 
-    def __init__(self, width, height, shape=None):
+    def __init__(self, width, height, do_mono, shape=None):
         super(DrawingInterface, self).__init__()
 
         self.canvas_width = width
         self.canvas_height = height
+        self.do_mono = do_mono
         if shape is not None:
             self.num_rows, self.num_cols = shape
 
@@ -48,7 +44,7 @@ class PixelDrawer(DrawingInterface):
         cell_width = canvas_width / num_cols
         cell_height = canvas_height / num_rows
 
-        # Initialize Random Curves
+        # Initialize Random Pixels
         shapes = []
         shape_groups = []
         colors = []
@@ -56,7 +52,11 @@ class PixelDrawer(DrawingInterface):
             cur_y = r * cell_height
             for c in range(num_cols):
                 cur_x = c * cell_width
-                cell_color = torch.tensor([0.0+1.0*random.random(), 0.0+1.0*random.random(), 0.0+1.0*random.random(), 1.0])
+                if self.do_mono:
+                    mono_color = random.random()
+                    cell_color = torch.tensor([mono_color, mono_color, mono_color, 1.0])
+                else:
+                    cell_color = torch.tensor([random.random(), random.random(), random.random(), 1.0])
                 colors.append(cell_color)
                 p0 = [cur_x, cur_y]
                 p1 = [cur_x+cell_width, cur_y+cell_height]
@@ -136,6 +136,9 @@ class PixelDrawer(DrawingInterface):
             for group in self.shape_groups:
                 group.fill_color.data[:3].clamp_(0.0, 1.0)
                 group.fill_color.data[3].clamp_(1.0, 1.0)
+                if self.do_mono:
+                    avg_amount = torch.mean(group.fill_color.data[:3])
+                    group.fill_color.data[:3] = avg_amount
 
     def get_z(self):
         return None

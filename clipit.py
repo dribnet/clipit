@@ -38,6 +38,7 @@ ImageFile.LOAD_TRUNCATED_IMAGES = True
 # or 'border'
 global_padding_mode = 'reflection'
 global_aspect_width = 1
+global_spot_file = None
 
 from vqgan import VqganDrawer
 try:
@@ -210,11 +211,15 @@ class MyRandomPerspective(K.RandomPerspective):
 
 cached_spot_indexes = {}
 def fetch_spot_indexes(sideX, sideY):
+    global global_spot_file
+
     # make sure image is loaded if we need it
     cache_key = (sideX, sideY)
 
     if cache_key not in cached_spot_indexes:
-        if global_aspect_width != 1:
+        if global_spot_file is not None:
+            mask_image = Image.open(global_spot_file)
+        elif global_aspect_width != 1:
             mask_image = Image.open("inputs/spot_wide.png")
         else:
             mask_image = Image.open("inputs/spot_square.png")
@@ -337,9 +342,9 @@ def do_init(args):
         drawer = ClipDrawer(args.size[0], args.size[1], args.strokes)
     elif args.use_pixeldraw:
         if global_aspect_width == 1:
-            drawer = PixelDrawer(args.size[0], args.size[1], [40, 40])
+            drawer = PixelDrawer(args.size[0], args.size[1], args.do_mono, [40, 40])
         else:
-            drawer = PixelDrawer(args.size[0], args.size[1])   
+            drawer = PixelDrawer(args.size[0], args.size[1], args.do_mono)
     else:
         drawer = VqganDrawer(args.vqgan_model)
     drawer.load_model(args.vqgan_config, args.vqgan_checkpoint, device)
@@ -954,6 +959,7 @@ def setup_parser():
     vq_parser.add_argument("-p",    "--prompts", type=str, help="Text prompts", default=[], dest='prompts')
     vq_parser.add_argument("-sp",   "--spot", type=str, help="Spot Text prompts", default=[], dest='spot_prompts')
     vq_parser.add_argument("-spo",  "--spot_off", type=str, help="Spot off Text prompts", default=[], dest='spot_prompts_off')
+    vq_parser.add_argument("-spf",  "--spot_file", type=str, help="Custom spot file", default=None, dest='spot_file')
     vq_parser.add_argument("-l",    "--labels", type=str, help="ImageNet labels", default=[], dest='labels')
     vq_parser.add_argument("-ip",   "--image_prompts", type=str, help="Image prompts", default=[], dest='image_prompts')
     vq_parser.add_argument("-ipw",  "--image_prompt_weight", type=float, help="Weight for image prompt", default=None, dest='image_prompt_weight')
@@ -1001,6 +1007,7 @@ def setup_parser():
     vq_parser.add_argument("-cd",   "--use_clipdraw", type=bool, help="Use clipdraw", default=False, dest='use_clipdraw')
     vq_parser.add_argument("-st",   "--strokes", type=int, help="clipdraw strokes", default=1024, dest='strokes')
     vq_parser.add_argument("-pd",   "--use_pixeldraw", type=bool, help="Use pixeldraw", default=False, dest='use_pixeldraw')
+    vq_parser.add_argument("-mo",   "--do_mono", type=bool, help="Monochromatic", default=False, dest='do_mono')
 
     return vq_parser    
 
@@ -1010,6 +1017,7 @@ widescreen_size = [200, 112]  # at the small size this becomes 192,112
 def process_args(vq_parser, namespace=None):
     global global_aspect_width
     global cur_iteration, cur_anim_index, anim_output_files, anim_cur_zs, anim_next_zs;
+    global global_spot_file
 
     if namespace == None:
       # command line: use ARGV to get args
@@ -1141,6 +1149,8 @@ def process_args(vq_parser, namespace=None):
     anim_output_files=[]
     anim_cur_zs=[]
     anim_next_zs=[]
+
+    global_spot_file = args.spot_file
 
     return args
 
