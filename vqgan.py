@@ -39,7 +39,7 @@ def wget_file(url, out):
     try:
         output = subprocess.check_output(['wget', '-O', out, url])
     except subprocess.CalledProcessError as cpe:
-        output = e.output
+        output = cpe.output
         print("Ignoring non-zero exit: ", output)
 
 class ReplaceGrad(torch.autograd.Function):

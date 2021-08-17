@@ -44,11 +44,13 @@ from vqgan import VqganDrawer
 try:
     from clipdrawer import ClipDrawer
 except ImportError:
-    print('clipdrawer not imported')
+    pass
+    # print('clipdrawer not imported')
 try:
     from pixeldrawer import PixelDrawer
 except ImportError:
-    print('pixeldrawer not imported')
+    pass
+    # print('pixeldrawer not imported')
 
 # https://stackoverflow.com/a/39662359
 def isnotebook():
