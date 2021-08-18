@@ -52,6 +52,8 @@ except ImportError:
     pass
     # print('pixeldrawer not imported')
 
+print("warning: running unreleased future version")
+
 # https://stackoverflow.com/a/39662359
 def isnotebook():
     try:
@@ -249,16 +251,30 @@ class MakeCutouts(nn.Module):
         super().__init__()
         self.cut_size = cut_size
         self.cutn = cutn
+        self.cutn_zoom = int(2*cutn/3)
         self.cut_pow = cut_pow
         self.transforms = None
 
         augmentations = []
         if global_aspect_width != 1:
-            augmentations.append(K.RandomCrop(size=(self.cut_size,self.cut_size), p=1.0, return_transform=True))
+            augmentations.append(K.RandomCrop(size=(self.cut_size,self.cut_size), p=1.0, cropping_mode="resample", return_transform=True))
         augmentations.append(MyRandomPerspective(distortion_scale=0.40, p=0.7, return_transform=True))
-        augmentations.append(K.RandomResizedCrop(size=(self.cut_size,self.cut_size), scale=(0.15,0.80),  ratio=(0.75,1.333), cropping_mode='resample', p=0.7, return_transform=True))
+        augmentations.append(K.RandomResizedCrop(size=(self.cut_size,self.cut_size), scale=(0.1,0.75),  ratio=(0.85,1.2), cropping_mode='resample', p=0.7, return_transform=True))
         augmentations.append(K.ColorJitter(hue=0.1, saturation=0.1, p=0.8, return_transform=True))
-        self.augs = nn.Sequential(*augmentations)
+        self.augs_zoom = nn.Sequential(*augmentations)
+
+        augmentations = []
+        if global_aspect_width != 1:
+            n_s = 9/16
+        else:
+            n_s = 0.95
+        n_t = (1-n_s)/2
+        # augmentations.append(K.CenterCrop(size=(self.cut_size,self.cut_size), p=1.0, cropping_mode="resample", return_transform=True))
+        augmentations.append(K.RandomAffine(degrees=0, translate=(0, n_t), scale=(0.9*n_s, n_s), p=1.0, return_transform=True))
+        augmentations.append(K.CenterCrop(size=self.cut_size, cropping_mode='resample', p=1.0, return_transform=True))
+        augmentations.append(K.RandomPerspective(distortion_scale=0.20, p=0.7, return_transform=True))
+        augmentations.append(K.ColorJitter(hue=0.1, saturation=0.1, p=0.8, return_transform=True))
+        self.augs_wide = nn.Sequential(*augmentations)
 
         self.noise_fac = 0.1
         
@@ -267,7 +283,7 @@ class MakeCutouts(nn.Module):
         self.max_pool = nn.AdaptiveMaxPool2d((self.cut_size, self.cut_size))
 
     def forward(self, input, spot=None):
-        global global_aspect_width
+        global global_aspect_width, cur_iteration
         sideY, sideX = input.shape[2:4]
         max_size = min(sideX, sideY)
         min_size = min(sideX, sideY, self.cut_size)
@@ -292,29 +308,37 @@ class MakeCutouts(nn.Module):
             if global_aspect_width != 1:
                 cutout = kornia.geometry.transform.rescale(cutout, (1, 16/9))
 
-            # if i % 50 == 0 and _ == 0:
+            # if cur_iteration % 50 == 0 and _ == 0:
             #     print(cutout.shape)
-            #     TF.to_pil_image(cutout[0].cpu()).save(f"cutout_im_{i:02d}_{spot}.png")
+            #     TF.to_pil_image(cutout[0].cpu()).save(f"cutout_im_{cur_iteration:02d}_{spot}.png")
 
             cutouts.append(cutout)
 
         if self.transforms is not None:
-            # print("Cached transforms available, but I'm not smart enough to use them")
-            # print(cutouts.shape)
-            # print(torch.cat(cutouts, dim=0).shape)
-            # print(self.transforms.shape)
-            # batch = kornia.geometry.transform.warp_affine(torch.cat(cutouts, dim=0), self.transforms, (sideY, sideX))
-            # batch = self.transforms @ torch.cat(cutouts, dim=0)
-            batch = kornia.geometry.transform.warp_perspective(torch.cat(cutouts, dim=0), self.transforms,
+            # print("Cached transforms available")
+            batch1 = kornia.geometry.transform.warp_perspective(torch.cat(cutouts[:self.cutn_zoom], dim=0), self.transforms[:self.cutn_zoom],
                 (self.cut_size, self.cut_size), padding_mode=global_padding_mode)
-            # if i < 4:
-            #     for j in range(4):
-            #         TF.to_pil_image(batch[j].cpu()).save(f"cached_im_{i:02d}_{j:02d}_{spot}.png")
+            batch2 = kornia.geometry.transform.warp_perspective(torch.cat(cutouts[self.cutn_zoom:], dim=0), self.transforms[self.cutn_zoom:],
+                (self.cut_size, self.cut_size), padding_mode='zeros')
+            batch = torch.cat([batch1, batch2])
+            if cur_iteration < 2:
+                for j in range(4):
+                    TF.to_pil_image(batch[j].cpu()).save(f"cached_im_{cur_iteration:02d}_{j:02d}_{spot}.png")
+                    j_wide = j + self.cutn_zoom
+                    TF.to_pil_image(batch[j_wide].cpu()).save(f"cached_im_{cur_iteration:02d}_{j_wide:02d}_{spot}.png")
         else:
-            batch, self.transforms = self.augs(torch.cat(cutouts, dim=0))
-            # if i < 4:
-            #     for j in range(4):
-            #         TF.to_pil_image(batch[j].cpu()).save(f"live_im_{i:02d}_{j:02d}_{spot}.png")
+            batch1, transforms1 = self.augs_zoom(torch.cat(cutouts[:self.cutn_zoom], dim=0))
+            batch2, transforms2 = self.augs_wide(torch.cat(cutouts[self.cutn_zoom:], dim=0))
+            # print(batch1.shape, batch2.shape)
+            batch = torch.cat([batch1, batch2])
+            # print(batch.shape)
+            self.transforms = torch.cat([transforms1, transforms2])
+            ## batch, self.transforms = self.augs(torch.cat(cutouts, dim=0))
+            if cur_iteration < 2:
+                for j in range(4):
+                    TF.to_pil_image(batch[j].cpu()).save(f"live_im_{cur_iteration:02d}_{j:02d}_{spot}.png")
+                    j_wide = j + self.cutn_zoom
+                    TF.to_pil_image(batch[j_wide].cpu()).save(f"live_im_{cur_iteration:02d}_{j_wide:02d}_{spot}.png")
 
         # print(batch.shape, self.transforms.shape)
         
@@ -334,7 +358,7 @@ def do_init(args):
     global opts, perceptors, normalize, cutoutsTable, cutoutSizeTable
     global z_orig, z_targets, z_labels, init_image_tensor, target_image_tensor
     global gside_X, gside_Y, overlay_image_rgba
-    global pmsTable, pImages, device, spotPmsTable, spotOffPmsTable
+    global pmsTable, pmsImageTable, pImages, device, spotPmsTable, spotOffPmsTable
     global drawer
 
     # Do it (init that is)
@@ -468,13 +492,14 @@ def do_init(args):
     z_orig = drawer.get_z_copy()
 
     pmsTable = {}
+    pmsImageTable = {}
     spotPmsTable = {}
     spotOffPmsTable = {}
     for clip_model in args.clip_models:
         pmsTable[clip_model] = []
+        pmsImageTable[clip_model] = []
         spotPmsTable[clip_model] = []
         spotOffPmsTable[clip_model] = []
-    pImages = []
     normalize = transforms.Normalize(mean=[0.48145466, 0.4578275, 0.40821073],
                                       std=[0.26862954, 0.26130258, 0.27577711])
 
@@ -518,12 +543,14 @@ def do_init(args):
             class_embedding /= class_embedding.norm()
             pMs.append(Prompt(class_embedding.unsqueeze(0), weight, stop).to(device))
 
-    for prompt in args.image_prompts:
-        path, weight, stop = parse_prompt(prompt)
-        img = Image.open(path)
-        pil_image = img.convert('RGB')
-        img = resize_image(pil_image, (sideX, sideY))
-        pImages.append(TF.to_tensor(img).unsqueeze(0).to(device))
+    for clip_model in args.clip_models:
+        pImages = pmsImageTable[clip_model]
+        for prompt in args.image_prompts:
+            path, weight, stop = parse_prompt(prompt)
+            img = Image.open(path)
+            pil_image = img.convert('RGB')
+            img = resize_image(pil_image, (sideX, sideY))
+            pImages.append(TF.to_tensor(img).unsqueeze(0).to(device))
 
     for seed, weight in zip(args.noise_prompt_seeds, args.noise_prompt_weights):
         gen = torch.Generator().manual_seed(seed)
@@ -594,7 +621,7 @@ target_image_tensor = None
 pmsTable = None
 spotPmsTable = None 
 spotOffPmsTable = None 
-pImages = None
+pmsImageTable = None
 gside_X=None
 gside_Y=None
 overlay_image_rgba=None
@@ -653,7 +680,7 @@ def checkin(args, iter, losses):
 def ascend_txt(args):
     global cur_iteration, cur_anim_index, perceptors, normalize, cutoutsTable, cutoutSizeTable
     global z_orig, z_targets, z_labels, init_image_tensor, target_image_tensor, drawer
-    global pmsTable, spotPmsTable, spotOffPmsTable, global_padding_mode
+    global pmsTable, pmsImageTable, spotPmsTable, spotOffPmsTable, global_padding_mode
 
     out = drawer.synth(cur_iteration);
 
@@ -704,6 +731,7 @@ def ascend_txt(args):
         # If there are image prompts we make cutouts for those each time
         # so that they line up with the current cutouts from augmentation
         make_cutouts = cutoutsTable[cutoutSize]
+        pImages = pmsImageTable[clip_model]
         for timg in pImages:
             # note: this caches and reuses the transforms - a bit of a hack but it works
 
@@ -711,6 +739,7 @@ def ascend_txt(args):
                 # print("Disabling cached transforms")
                 make_cutouts.transforms = None
 
+            # print("Building throwaway image prompts")
             # new way builds throwaway Prompts
             batch = make_cutouts(timg)
             embed = perceptor.encode_image(normalize(batch)).float()
