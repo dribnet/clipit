@@ -343,7 +343,9 @@ def do_init(args):
     if args.use_clipdraw:
         drawer = ClipDrawer(args.size[0], args.size[1], args.strokes)
     elif args.use_pixeldraw:
-        if global_aspect_width == 1:
+        if args.pixel_size is not None:
+            drawer = PixelDrawer(args.size[0], args.size[1], args.do_mono, args.pixel_size)            
+        elif global_aspect_width == 1:
             drawer = PixelDrawer(args.size[0], args.size[1], args.do_mono, [40, 40])
         else:
             drawer = PixelDrawer(args.size[0], args.size[1], args.do_mono)
@@ -980,6 +982,7 @@ def setup_parser():
     vq_parser.add_argument("-sca",  "--scale", type=float, help="scale (instead of ezsize)", default=None, dest='scale')
     vq_parser.add_argument("-ova",  "--overlay_alpha", type=int, help="Overlay alpha (0-255)", default=None, dest='overlay_alpha')    
     vq_parser.add_argument("-s",    "--size", nargs=2, type=int, help="Image size (width height)", default=None, dest='size')
+    vq_parser.add_argument("-ps",   "--pixel_size", nargs=2, type=int, help="Pixel size (width height)", default=None, dest='pixel_size')
     vq_parser.add_argument("-ii",   "--init_image", type=str, help="Initial image", default=None, dest='init_image')
     vq_parser.add_argument("-iia",  "--init_image_alpha", type=int, help="Init image alpha (0-255)", default=200, dest='init_image_alpha')
     vq_parser.add_argument("-in",   "--init_noise", type=str, help="Initial noise image (pixels or gradient)", default="pixels", dest='init_noise')
