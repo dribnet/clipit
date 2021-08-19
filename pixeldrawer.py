@@ -123,15 +123,21 @@ class PixelDrawer(DrawingInterface):
     @torch.no_grad()
     def to_image(self):
         img = self.img.detach().cpu().numpy()[0]
-        img = img[1] # take the green channel (they should all be the same)
-        s = img.shape
-        # threshold is an approximate gaussian from [0,1]
-        random_bates = np.average(np.random.uniform(size=(5, s[0], s[1])), axis=0)
-        # pimg = PIL.Image.fromarray(np.uint8(random_bates*255), mode="L")
-        # pimg.save("bates_debug.png")
-        img = np.where(img > random_bates, 1, 0)
-        img = np.uint8(img * 255)
-        pimg = PIL.Image.fromarray(img, mode="L")
+        if self.do_mono:
+            img = img[1] # take the green channel (they should all be the same)
+            s = img.shape
+            # threshold is an approximate gaussian from [0,1]
+            random_bates = np.average(np.random.uniform(size=(5, s[0], s[1])), axis=0)
+            # pimg = PIL.Image.fromarray(np.uint8(random_bates*255), mode="L")
+            # pimg.save("bates_debug.png")
+            img = np.where(img > random_bates, 1, 0)
+            img = np.uint8(img * 255)
+            pimg = PIL.Image.fromarray(img, mode="L")
+        else:
+            img = np.transpose(img, (1, 2, 0))
+            img = np.clip(img, 0, 1)
+            img = np.uint8(img * 254)
+            pimg = PIL.Image.fromarray(img, mode="RGB")
         return pimg
 
     def clip_z(self):
