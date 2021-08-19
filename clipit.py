@@ -52,7 +52,7 @@ except ImportError:
     pass
     # print('pixeldrawer not imported')
 
-print("warning: running unreleased future version")
+# print("warning: running unreleased future version")
 
 # https://stackoverflow.com/a/39662359
 def isnotebook():
