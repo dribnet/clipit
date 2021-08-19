@@ -28,7 +28,7 @@ class PixelDrawer(DrawingInterface):
         self.canvas_height = height
         self.do_mono = do_mono
         if shape is not None:
-            self.num_rows, self.num_cols = shape
+            self.num_cols, self.num_rows = shape
 
 
     def load_model(self, config_path, checkpoint_path, device):
@@ -123,12 +123,15 @@ class PixelDrawer(DrawingInterface):
     @torch.no_grad()
     def to_image(self):
         img = self.img.detach().cpu().numpy()[0]
-        img = np.transpose(img, (1, 2, 0))
-        img = np.clip(img, 0, 1)
-        img = np.uint8(img * 254)
-        # img = np.repeat(img, 4, axis=0)
-        # img = np.repeat(img, 4, axis=1)
-        pimg = PIL.Image.fromarray(img, mode="RGB")
+        img = img[1] # take the green channel (they should all be the same)
+        s = img.shape
+        # threshold is an approximate gaussian from [0,1]
+        random_bates = np.average(np.random.uniform(size=(5, s[0], s[1])), axis=0)
+        # pimg = PIL.Image.fromarray(np.uint8(random_bates*255), mode="L")
+        # pimg.save("bates_debug.png")
+        img = np.where(img > random_bates, 1, 0)
+        img = np.uint8(img * 255)
+        pimg = PIL.Image.fromarray(img, mode="L")
         return pimg
 
     def clip_z(self):
