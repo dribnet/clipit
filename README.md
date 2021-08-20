@@ -10,7 +10,6 @@ Basically this is a verison of the notebook with opinionated defaults and slighl
 
 For now, checkout [THE DEMO NOTEBOOKS](demos/README.md) - especially the super simple "Start Here" colab.
 
-Here's the curent default notebook (but warning - this will soon be obsolete): [![Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/dribnet/clipit/blob/master/demos/Moar_Settings.ipynb)
 
 # Citations
 
