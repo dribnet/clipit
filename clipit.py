@@ -321,11 +321,11 @@ class MakeCutouts(nn.Module):
             batch2 = kornia.geometry.transform.warp_perspective(torch.cat(cutouts[self.cutn_zoom:], dim=0), self.transforms[self.cutn_zoom:],
                 (self.cut_size, self.cut_size), padding_mode='zeros')
             batch = torch.cat([batch1, batch2])
-            if cur_iteration < 2:
-                for j in range(4):
-                    TF.to_pil_image(batch[j].cpu()).save(f"cached_im_{cur_iteration:02d}_{j:02d}_{spot}.png")
-                    j_wide = j + self.cutn_zoom
-                    TF.to_pil_image(batch[j_wide].cpu()).save(f"cached_im_{cur_iteration:02d}_{j_wide:02d}_{spot}.png")
+            # if cur_iteration < 2:
+            #     for j in range(4):
+            #         TF.to_pil_image(batch[j].cpu()).save(f"cached_im_{cur_iteration:02d}_{j:02d}_{spot}.png")
+            #         j_wide = j + self.cutn_zoom
+            #         TF.to_pil_image(batch[j_wide].cpu()).save(f"cached_im_{cur_iteration:02d}_{j_wide:02d}_{spot}.png")
         else:
             batch1, transforms1 = self.augs_zoom(torch.cat(cutouts[:self.cutn_zoom], dim=0))
             batch2, transforms2 = self.augs_wide(torch.cat(cutouts[self.cutn_zoom:], dim=0))
@@ -334,11 +334,11 @@ class MakeCutouts(nn.Module):
             # print(batch.shape)
             self.transforms = torch.cat([transforms1, transforms2])
             ## batch, self.transforms = self.augs(torch.cat(cutouts, dim=0))
-            if cur_iteration < 2:
-                for j in range(4):
-                    TF.to_pil_image(batch[j].cpu()).save(f"live_im_{cur_iteration:02d}_{j:02d}_{spot}.png")
-                    j_wide = j + self.cutn_zoom
-                    TF.to_pil_image(batch[j_wide].cpu()).save(f"live_im_{cur_iteration:02d}_{j_wide:02d}_{spot}.png")
+            # if cur_iteration < 2:
+            #     for j in range(4):
+            #         TF.to_pil_image(batch[j].cpu()).save(f"live_im_{cur_iteration:02d}_{j:02d}_{spot}.png")
+            #         j_wide = j + self.cutn_zoom
+            #         TF.to_pil_image(batch[j_wide].cpu()).save(f"live_im_{cur_iteration:02d}_{j_wide:02d}_{spot}.png")
 
         # print(batch.shape, self.transforms.shape)
         
