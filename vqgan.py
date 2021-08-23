@@ -22,7 +22,8 @@ vqgan_config_table = {
     "coco": 'https://dl.nmkd.de/ai/clip/coco/coco.yaml',
     "faceshq": 'https://drive.google.com/uc?export=download&id=1fHwGx_hnBtC8nsq7hesJvs-Klv-P0gzT',
     "wikiart_1024": 'http://mirror.io.community/blob/vqgan/wikiart.yaml',
-    "wikiart_16384": 'http://mirror.io.community/blob/vqgan/wikiart_16384.yaml',
+    "wikiart_16384": 'http://eaidata.bmk.sh/data/Wikiart_16384/wikiart_f16_16384_8145600.yaml',
+    "wikiart_16384m": 'http://mirror.io.community/blob/vqgan/wikiart_16384.yaml',
     "sflckr": 'https://heibox.uni-heidelberg.de/d/73487ab6e5314cb5adba/files/?p=%2Fconfigs%2F2020-11-09T13-31-51-project.yaml&dl=1',
 }
 vqgan_checkpoint_table = {
@@ -33,7 +34,8 @@ vqgan_checkpoint_table = {
     "coco": 'https://dl.nmkd.de/ai/clip/coco/coco.ckpt',
     "faceshq": 'https://app.koofr.net/content/links/a04deec9-0c59-4673-8b37-3d696fe63a5d/files/get/last.ckpt?path=%2F2020-11-13T21-41-45_faceshq_transformer%2Fcheckpoints%2Flast.ckpt',
     "wikiart_1024": 'http://mirror.io.community/blob/vqgan/wikiart.ckpt',
-    "wikiart_16384": 'http://mirror.io.community/blob/vqgan/wikiart_16384.ckpt',
+    "wikiart_16384": 'http://eaidata.bmk.sh/data/Wikiart_16384/wikiart_f16_16384_8145600.ckpt',
+    "wikiart_16384m": 'http://mirror.io.community/blob/vqgan/wikiart_16384.ckpt',
     "sflckr": 'https://heibox.uni-heidelberg.de/d/73487ab6e5314cb5adba/files/?p=%2Fcheckpoints%2Flast.ckpt&dl=1'
 }
 
