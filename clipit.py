@@ -1061,10 +1061,10 @@ def setup_parser():
     vq_parser.add_argument("-pd",   "--use_pixeldraw", type=bool, help="Use pixeldraw", default=False, dest='use_pixeldraw')
     vq_parser.add_argument("-mo",   "--do_mono", type=bool, help="Monochromatic", default=False, dest='do_mono')
     vq_parser.add_argument("-epw",  "--enforce_palette_annealing", type=int, help="enforce palette annealing, 0 -- skip", default=0, dest='enforce_palette_annealing')
-    vq_parser.add_argument("-tp",   "--target_palette", type=json.loads, help="target palette", default=None, dest='target_palette')
+    vq_parser.add_argument("-tp",   "--target_palette", type=str, help="target palette", default=None, dest='target_palette')
     vq_parser.add_argument("-esw",  "--enforce_smoothness", type=int, help="enforce smoothness, 0 -- skip", default=0, dest='enforce_smoothness')
 
-    return vq_parser    
+    return vq_parser
 
 square_size = [144, 144]
 widescreen_size = [200, 112]  # at the small size this becomes 192,112
@@ -1180,6 +1180,21 @@ def process_args(vq_parser, namespace=None):
     if args.image_prompts:
         args.image_prompts = args.image_prompts.split("|")
         args.image_prompts = [image.strip() for image in args.image_prompts]
+
+    palette_lookups = {
+        "green":     [0.44, 1.00, 0.53],
+        "orange":    [1.00, 0.80, 0.20],
+        "blue":      [0.44, 0.53, 1.00],
+        "red":       [1.00, 0.53, 0.44],
+        "grayscale": [1.00, 1.00, 1.00],
+    }
+    if args.target_palette is not None:
+        if args.target_palette[0] == '#':
+            import matplotlib.colors
+            args.target_palette = [matplotlib.colors.to_rgb(c.strip()) for c in args.target_palette.strip().split(',')]
+        elif args.target_palette in palette_lookups:
+            p = palette_lookups[args.target_palette]
+            args.target_palette = [[p[0]*i*16/256, p[1]*i*16/256, p[2]*i*16/256] for i in range(16)]
 
     # legacy "spread mode" removed
     # if args.init_weight is not None:
