@@ -6,6 +6,7 @@ import math
 from urllib.request import urlopen
 import sys
 import os
+import json
 import subprocess
 import glob
 from braceexpand import braceexpand
@@ -751,6 +752,23 @@ def ascend_txt(args):
         for prompt in transient_pMs:
             result.append(prompt(iii))
 
+    if args.enforce_palette_annealing and args.target_palette:
+        target_palette = torch.FloatTensor(args.target_palette).requires_grad_(False).to(device)
+        _pixels = cur_cutouts[cutoutSize].permute(0,2,3,1).reshape(-1,3)
+        palette_dists = torch.cdist(target_palette, _pixels, p=2)
+        best_guesses = palette_dists.argmin(axis=0)
+        diffs = _pixels - target_palette[best_guesses]
+        palette_loss = torch.mean( torch.norm( diffs, 2, dim=1 ) )*cur_cutouts[cutoutSize].shape[0]
+        result.append( palette_loss*cur_iteration/args.enforce_palette_annealing )
+
+    if args.enforce_smoothness:
+        _pixels = cur_cutouts[cutoutSize].permute(0,2,3,1).reshape(-1,cur_cutouts[cutoutSize].shape[2],3)
+        gyr, gxr = torch.gradient(_pixels[:,:,0])
+        gyg, gxg = torch.gradient(_pixels[:,:,1])
+        gyb, gxb = torch.gradient(_pixels[:,:,2])
+        sharpness = torch.mean(torch.sqrt(gyr**2 + gxr**2+ gyg**2 + gxg**2 + gyb**2 + gxb**2))
+        result.append( sharpness*cur_iteration/args.enforce_smoothness )
+
     for cutoutSize in cutoutsTable:
         # clear the transform "cache"
         make_cutouts = cutoutsTable[cutoutSize]
@@ -1042,6 +1060,9 @@ def setup_parser():
     vq_parser.add_argument("-st",   "--strokes", type=int, help="clipdraw strokes", default=1024, dest='strokes')
     vq_parser.add_argument("-pd",   "--use_pixeldraw", type=bool, help="Use pixeldraw", default=False, dest='use_pixeldraw')
     vq_parser.add_argument("-mo",   "--do_mono", type=bool, help="Monochromatic", default=False, dest='do_mono')
+    vq_parser.add_argument("-epw",  "--enforce_palette_annealing", type=int, help="enforce palette annealing, 0 -- skip", default=0, dest='enforce_palette_annealing')
+    vq_parser.add_argument("-tp",   "--target_palette", type=json.loads, help="target palette", default=None, dest='target_palette')
+    vq_parser.add_argument("-esw",  "--enforce_smoothness", type=int, help="enforce smoothness, 0 -- skip", default=0, dest='enforce_smoothness')
 
     return vq_parser    
 
