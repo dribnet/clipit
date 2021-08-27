@@ -368,11 +368,11 @@ def do_init(args):
         drawer = ClipDrawer(args.size[0], args.size[1], args.strokes)
     elif args.use_pixeldraw:
         if args.pixel_size is not None:
-            drawer = PixelDrawer(args.size[0], args.size[1], args.do_mono, args.pixel_size)            
+            drawer = PixelDrawer(args.size[0], args.size[1], args.do_mono, args.pixel_size, scale=args.pixel_scale)
         elif global_aspect_width == 1:
-            drawer = PixelDrawer(args.size[0], args.size[1], args.do_mono, [40, 40])
+            drawer = PixelDrawer(args.size[0], args.size[1], args.do_mono, [40, 40], scale=args.pixel_scale)
         else:
-            drawer = PixelDrawer(args.size[0], args.size[1], args.do_mono)
+            drawer = PixelDrawer(args.size[0], args.size[1], args.do_mono, scale=args.pixel_scale)
     else:
         drawer = VqganDrawer(args.vqgan_model)
     drawer.load_model(args.vqgan_config, args.vqgan_checkpoint, device)
@@ -836,11 +836,11 @@ def train(args, cur_it):
     for opt in opts:
         # opt.zero_grad(set_to_none=True)
         opt.zero_grad()
+
     lossAll = ascend_txt(args)
     
     if cur_it % args.save_every == 0:
         checkin(args, cur_it, lossAll)
-
     loss = sum(lossAll)
     loss.backward()
     for opt in opts:
@@ -1012,6 +1012,7 @@ def setup_parser():
     vq_parser.add_argument("-ova",  "--overlay_alpha", type=int, help="Overlay alpha (0-255)", default=None, dest='overlay_alpha')    
     vq_parser.add_argument("-s",    "--size", nargs=2, type=int, help="Image size (width height)", default=None, dest='size')
     vq_parser.add_argument("-ps",   "--pixel_size", nargs=2, type=int, help="Pixel size (width height)", default=None, dest='pixel_size')
+    vq_parser.add_argument("-psc",  "--pixel_scale", type=float, help="Pixel scale", default=None, dest='pixel_scale')
     vq_parser.add_argument("-ii",   "--init_image", type=str, help="Initial image", default=None, dest='init_image')
     vq_parser.add_argument("-iia",  "--init_image_alpha", type=int, help="Init image alpha (0-255)", default=200, dest='init_image_alpha')
     vq_parser.add_argument("-in",   "--init_noise", type=str, help="Initial noise image (pixels or gradient)", default="pixels", dest='init_noise')
