@@ -837,12 +837,15 @@ def train(args, cur_it):
         # opt.zero_grad(set_to_none=True)
         opt.zero_grad()
 
-    lossAll = ascend_txt(args)
-    
-    if cur_it % args.save_every == 0:
-        checkin(args, cur_it, lossAll)
-    loss = sum(lossAll)
-    loss.backward()
+    for i in range(args.batches):
+        lossAll = ascend_txt(args)
+
+        if i == 0 and cur_it % args.save_every == 0:
+            checkin(args, cur_it, lossAll)
+
+        loss = sum(lossAll)
+        loss.backward()
+
     for opt in opts:
         opt.step()
 
@@ -1033,6 +1036,7 @@ def setup_parser():
     vq_parser.add_argument("-npw",  "--noise_prompt_weights", nargs="*", type=float, help="Noise prompt weights", default=[], dest='noise_prompt_weights')
     vq_parser.add_argument("-lr",   "--learning_rate", type=float, help="Learning rate", default=0.2, dest='step_size')
     vq_parser.add_argument("-cuts", "--num_cuts", type=int, help="Number of cuts", default=None, dest='num_cuts')
+    vq_parser.add_argument("-bats", "--batches", type=int, help="How many batches of cuts", default=1, dest='batches')
     vq_parser.add_argument("-cutp", "--cut_power", type=float, help="Cut power", default=1., dest='cut_pow')
     vq_parser.add_argument("-sd",   "--seed", type=int, help="Seed", default=None, dest='seed')
     vq_parser.add_argument("-opt",  "--optimiser", type=str, help="Optimiser (Adam, AdamW, Adagrad, Adamax, DiffGrad, AdamP or RAdam)", default='AdamP', dest='optimiser')
