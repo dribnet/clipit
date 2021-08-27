@@ -1092,7 +1092,7 @@ def process_args(vq_parser, namespace=None):
     }
 
     if args.quality not in quality_to_clip_models_table:
-        print("Qualitfy setting not understood, aborting -> ", argz.quality)
+        print("Qualitfy setting not understood, aborting -> ", args.quality)
         exit(1)
 
     if args.clip_models is None:
@@ -1121,7 +1121,7 @@ def process_args(vq_parser, namespace=None):
             if args.ezsize in size_to_scale_table:
                 size_scale = size_to_scale_table[args.ezsize]
             else:
-                print("EZ Size not understood, aborting -> ", argz.ezsize)
+                print("EZ Size not understood, aborting -> ", args.ezsize)
                 exit(1)
         if args.aspect in aspect_to_size_table:
             base_size = aspect_to_size_table[args.aspect]
@@ -1129,7 +1129,7 @@ def process_args(vq_parser, namespace=None):
             base_height = int(size_scale * base_size[1])
             args.size = [base_width, base_height]
         else:
-            print("aspect not understood, aborting -> ", argz.aspect)
+            print("aspect not understood, aborting -> ", args.aspect)
             exit(1)
 
     if args.aspect == "widescreen":
