@@ -21,7 +21,7 @@ class PixelDrawer(DrawingInterface):
     do_mono = False
     pixels = []
 
-    def __init__(self, width, height, do_mono, shape=None):
+    def __init__(self, width, height, do_mono, shape=None, scale=None):
         super(DrawingInterface, self).__init__()
 
         self.canvas_width = width
@@ -29,6 +29,9 @@ class PixelDrawer(DrawingInterface):
         self.do_mono = do_mono
         if shape is not None:
             self.num_cols, self.num_rows = shape
+        if scale is not None and scale > 0:
+            self.num_cols = int(self.num_cols / scale)
+            self.num_rows = int(self.num_rows / scale)
 
 
     def load_model(self, config_path, checkpoint_path, device):
