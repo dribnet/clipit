@@ -767,13 +767,33 @@ def ascend_txt(args):
         palette_loss = torch.mean( torch.norm( diffs, 2, dim=1 ) )*cur_cutouts[cutoutSize].shape[0]
         result.append( palette_loss*cur_iteration/args.enforce_palette_annealing )
 
-    if args.enforce_smoothness:
+    if args.enforce_smoothness and args.enforce_smoothness_type:
         _pixels = cur_cutouts[cutoutSize].permute(0,2,3,1).reshape(-1,cur_cutouts[cutoutSize].shape[2],3)
         gyr, gxr = torch.gradient(_pixels[:,:,0])
         gyg, gxg = torch.gradient(_pixels[:,:,1])
         gyb, gxb = torch.gradient(_pixels[:,:,2])
-        sharpness = torch.mean(torch.sqrt(gyr**2 + gxr**2+ gyg**2 + gxg**2 + gyb**2 + gxb**2))
+        sharpness = torch.sqrt(gyr**2 + gxr**2+ gyg**2 + gxg**2 + gyb**2 + gxb**2)
+        if args.enforce_smoothness_type=='clipped':
+            sharpness = torch.clamp( sharpness, max=0.5 )
+        elif args.enforce_smoothness_type=='log':
+            sharpness = torch.log( torch.ones_like(sharpness)+sharpness )
+        sharpness = torch.mean( sharpness )
+
         result.append( sharpness*cur_iteration/args.enforce_smoothness )
+
+    if args.enforce_saturation:
+        # based on the old "percepted colourfulness" heuristic from Hasler and Süsstrunk’s 2003 paper
+        # https://www.researchgate.net/publication/243135534_Measuring_Colourfulness_in_Natural_Images
+        _pixels = cur_cutouts[cutoutSize].permute(0,2,3,1).reshape(-1,3)
+        rg = _pixels[:,0]-_pixels[:,1]
+        yb = 0.5*(_pixels[:,0]+_pixels[:,1])-_pixels[:,2]
+        rg_std, rg_mean = torch.std_mean(rg)
+        yb_std, yb_mean = torch.std_mean(yb)
+        std_rggb = torch.sqrt(rg_std**2 + yb_std**2)
+        mean_rggb = torch.sqrt(rg_mean**2 + yb_mean**2)
+        colorfullness = std_rggb+.3*mean_rggb
+
+        result.append( -colorfullness*cur_iteration/args.enforce_saturation )
 
     for cutoutSize in cutoutsTable:
         # clear the transform "cache"
@@ -1074,6 +1094,8 @@ def setup_parser():
     vq_parser.add_argument("-epw",  "--enforce_palette_annealing", type=int, help="enforce palette annealing, 0 -- skip", default=0, dest='enforce_palette_annealing')
     vq_parser.add_argument("-tp",   "--target_palette", type=str, help="target palette", default=None, dest='target_palette')
     vq_parser.add_argument("-esw",  "--enforce_smoothness", type=int, help="enforce smoothness, 0 -- skip", default=0, dest='enforce_smoothness')
+    vq_parser.add_argument("-est",  "--enforce_smoothness_type", type=str, help="enforce smoothness type: default/clipped/log", default='default', dest='enforce_smoothness_type')
+    vq_parser.add_argument("-esw",  "--enforce_saturation", type=int, help="enforce saturation, 0 -- skip", default=0, dest='enforce_saturation')
 
     return vq_parser
 
