@@ -773,10 +773,18 @@ def ascend_txt(args):
         gyg, gxg = torch.gradient(_pixels[:,:,1])
         gyb, gxb = torch.gradient(_pixels[:,:,2])
         sharpness = torch.sqrt(gyr**2 + gxr**2+ gyg**2 + gxg**2 + gyb**2 + gxb**2)
+
+        sharpness1 = torch.clamp( sharpness, max=0.5 )
+        sharpness2 = torch.log( torch.ones_like(sharpness)+sharpness )
+        print(torch.mean( sharpness ), torch.mean( sharpness1 ), torch.mean( sharpness2 ))
+        t = 0
         if args.enforce_smoothness_type=='clipped':
+            t = 1
             sharpness = torch.clamp( sharpness, max=0.5 )
         elif args.enforce_smoothness_type=='log':
+            t = 2
             sharpness = torch.log( torch.ones_like(sharpness)+sharpness )
+        print(t)
         sharpness = torch.mean( sharpness )
 
         result.append( sharpness*cur_iteration/args.enforce_smoothness )
