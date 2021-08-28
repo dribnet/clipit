@@ -938,7 +938,7 @@ def do_run(args):
             pass
 
     if args.make_video:
-        do_video(settings)
+        do_video(args)
 
 def do_video(args):
     global cur_iteration
