@@ -1135,7 +1135,16 @@ def map_number(n, start1, stop1, start2, stop2):
 #
 # TODO: maybe foo.jpg, foo.json, foo.png, foo.asc
 def get_single_rgb(s):
-    if s[:4] == "mat:":
+    palette_lookups = {
+        "pixel_green":     [0.44, 1.00, 0.53],
+        "pixel_orange":    [1.00, 0.80, 0.20],
+        "pixel_blue":      [0.44, 0.53, 1.00],
+        "pixel_red":       [1.00, 0.53, 0.44],
+        "pixel_grayscale": [1.00, 1.00, 1.00],
+    }
+    if s in palette_lookups:
+        rgb = palette_lookups[s]
+    elif s[:4] == "mat:":
         rgb = matplotlib.colors.to_rgb(s[4:])
     elif matplotlib.colors.is_color_like(f"xkcd:{s}"):
         rgb = matplotlib.colors.to_rgb(f"xkcd:{s}")
