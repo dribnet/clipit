@@ -119,6 +119,14 @@ def old_random_noise_image(w,h):
 def NormalizeData(data):
     return (data - np.min(data)) / (np.max(data) - np.min(data))
 
+# https://stats.stackexchange.com/a/289477
+def contrast_noise(n):
+    n = 0.9998 * n + 0.0001
+    n1 = (n / (1-n))
+    n2 = np.power(n1, -2)
+    n3 = 1 / (1 + n2)
+    return n3
+
 def random_noise_image(w,h):
     # scale up roughly as power of 2
     if (w>1024 or h>1024):
@@ -133,7 +141,7 @@ def random_noise_image(w,h):
     nr = NormalizeData(generate_fractal_noise_2d((side, side), (32, 32), octp))
     ng = NormalizeData(generate_fractal_noise_2d((side, side), (32, 32), octp))
     nb = NormalizeData(generate_fractal_noise_2d((side, side), (32, 32), octp))
-    stack = np.dstack((nr,ng,nb))
+    stack = np.dstack((contrast_noise(nr),contrast_noise(ng),contrast_noise(nb)))
     substack = stack[:h, :w, :]
     im = Image.fromarray((255.9 * stack).astype('uint8'))
     return im
@@ -1065,7 +1073,7 @@ def setup_parser():
     vq_parser.add_argument("-psc",  "--pixel_scale", type=float, help="Pixel scale", default=None, dest='pixel_scale')
     vq_parser.add_argument("-ii",   "--init_image", type=str, help="Initial image", default=None, dest='init_image')
     vq_parser.add_argument("-iia",  "--init_image_alpha", type=int, help="Init image alpha (0-255)", default=200, dest='init_image_alpha')
-    vq_parser.add_argument("-in",   "--init_noise", type=str, help="Initial noise image (pixels or gradient)", default="noise", dest='init_noise')
+    vq_parser.add_argument("-in",   "--init_noise", type=str, help="Initial noise image (pixels or gradient)", default="pixels", dest='init_noise')
     vq_parser.add_argument("-ti",   "--target_images", type=str, help="Target images", default=None, dest='target_images')
     vq_parser.add_argument("-tiw",  "--target_image_weight", type=float, help="Target images weight", default=1.0, dest='target_image_weight')
     vq_parser.add_argument("-twp",  "--target_weight_pix", type=float, help="Target weight pix loss", default=0., dest='target_weight_pix')
