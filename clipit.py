@@ -1102,7 +1102,7 @@ def setup_parser():
     vq_parser.add_argument("-st",   "--strokes", type=int, help="clipdraw strokes", default=1024, dest='strokes')
     vq_parser.add_argument("-pd",   "--use_pixeldraw", type=bool, help="Use pixeldraw", default=False, dest='use_pixeldraw')
     vq_parser.add_argument("-mo",   "--do_mono", type=bool, help="Monochromatic", default=False, dest='do_mono')
-    vq_parser.add_argument("-epw",  "--enforce_palette_annealing", type=int, help="enforce palette annealing, 0 -- skip", default=0, dest='enforce_palette_annealing')
+    vq_parser.add_argument("-epw",  "--enforce_palette_annealing", type=int, help="enforce palette annealing, 0 -- skip", default=5000, dest='enforce_palette_annealing')
     vq_parser.add_argument("-tp",   "--target_palette", type=str, help="target palette", default=None, dest='target_palette')
     vq_parser.add_argument("-esw",  "--enforce_smoothness", type=int, help="enforce smoothness, 0 -- skip", default=0, dest='enforce_smoothness')
     vq_parser.add_argument("-est",  "--enforce_smoothness_type", type=str, help="enforce smoothness type: default/clipped/log", default='default', dest='enforce_smoothness_type')
@@ -1330,16 +1330,7 @@ def process_args(vq_parser, namespace=None):
         args.image_prompts = [image.strip() for image in args.image_prompts]
 
     if args.target_palette is not None:
-        # if we have a target palette default enforce_palette_annealing to num iterations
-        if args.enforce_palette_annealing == 0:
-            args.enforce_palette_annealing = 10 * args.iterations
         args.target_palette = palette_from_string(args.target_palette)
-
-    # legacy "spread mode" removed
-    # if args.init_weight is not None:
-    #     args.init_weight_pix = args.init_weight
-    #     args.init_weight_cos = args.init_weight
-    #     args.init_weight_dist = args.init_weight
 
     if args.overlay_every is not None and args.overlay_every <= 0:
         args.overlay_every = None
