@@ -1,6 +1,3 @@
-# Originally made by Katherine Crowson (https://github.com/crowsonkb, https://twitter.com/RiversHaveWings)
-# The original BigGAN+CLIP method was by https://twitter.com/advadnoun
-
 import argparse
 import math
 from urllib.request import urlopen
@@ -272,7 +269,8 @@ class MakeCutouts(nn.Module):
 
         augmentations = []
         if global_aspect_width != 1:
-            n_s = 9/16
+            # n_s = 9/16
+            n_s = 1/global_aspect_width
         else:
             n_s = 0.95
         n_t = (1-n_s)/2
@@ -313,7 +311,10 @@ class MakeCutouts(nn.Module):
                 cutout[0][mask_indexes] = 0.5
 
             if global_aspect_width != 1:
-                cutout = kornia.geometry.transform.rescale(cutout, (1, 16/9))
+                if global_aspect_width > 1:
+                    cutout = kornia.geometry.transform.rescale(cutout, (1, global_aspect_width))
+                else:
+                    cutout = kornia.geometry.transform.rescale(cutout, (1/global_aspect_width, 1))
 
             # if cur_iteration % 50 == 0 and _ == 0:
             #     print(cutout.shape)
@@ -417,6 +418,8 @@ def do_init(args):
             img = random_noise_image(args.size[0], args.size[1])
         elif args.init_noise == 'gradient':
             img = random_gradient_image(args.size[0], args.size[1])
+        elif args.init_noise == 'snow':
+            img = old_random_noise_image(args.size[0], args.size[1])
         else:
             img = Image.new(mode="RGB", size=(args.size[0], args.size[1]), color=(255, 255, 255))
         starting_image = img.convert('RGB')
@@ -571,19 +574,19 @@ def do_init(args):
         # Set the optimiser
         z = drawer.get_z();
         if args.optimiser == "Adam":
-            opt = optim.Adam([z], lr=args.step_size)		# LR=0.1
+            opt = optim.Adam([z], lr=args.learning_rate)		# LR=0.1
         elif args.optimiser == "AdamW":
-            opt = optim.AdamW([z], lr=args.step_size)		# LR=0.2
+            opt = optim.AdamW([z], lr=args.learning_rate)		# LR=0.2
         elif args.optimiser == "Adagrad":
-            opt = optim.Adagrad([z], lr=args.step_size)	# LR=0.5+
+            opt = optim.Adagrad([z], lr=args.learning_rate)	# LR=0.5+
         elif args.optimiser == "Adamax":
-            opt = optim.Adamax([z], lr=args.step_size)	# LR=0.5+?
+            opt = optim.Adamax([z], lr=args.learning_rate)	# LR=0.5+?
         elif args.optimiser == "DiffGrad":
-            opt = DiffGrad([z], lr=args.step_size)		# LR=2+?
+            opt = DiffGrad([z], lr=args.learning_rate)		# LR=2+?
         elif args.optimiser == "AdamP":
-            opt = AdamP([z], lr=args.step_size)		# LR=2+?
+            opt = AdamP([z], lr=args.learning_rate)		# LR=2+?
         elif args.optimiser == "RAdam":
-            opt = RAdam([z], lr=args.step_size)		# LR=2+?
+            opt = RAdam([z], lr=args.learning_rate)		# LR=2+?
 
         opts = [opt]
 
@@ -1062,7 +1065,7 @@ def setup_parser():
     vq_parser.add_argument("-psc",  "--pixel_scale", type=float, help="Pixel scale", default=None, dest='pixel_scale')
     vq_parser.add_argument("-ii",   "--init_image", type=str, help="Initial image", default=None, dest='init_image')
     vq_parser.add_argument("-iia",  "--init_image_alpha", type=int, help="Init image alpha (0-255)", default=200, dest='init_image_alpha')
-    vq_parser.add_argument("-in",   "--init_noise", type=str, help="Initial noise image (pixels or gradient)", default="pixels", dest='init_noise')
+    vq_parser.add_argument("-in",   "--init_noise", type=str, help="Initial noise image (pixels or gradient)", default="noise", dest='init_noise')
     vq_parser.add_argument("-ti",   "--target_images", type=str, help="Target images", default=None, dest='target_images')
     vq_parser.add_argument("-tiw",  "--target_image_weight", type=float, help="Target images weight", default=1.0, dest='target_image_weight')
     vq_parser.add_argument("-twp",  "--target_weight_pix", type=float, help="Target weight pix loss", default=0., dest='target_weight_pix')
@@ -1078,12 +1081,12 @@ def setup_parser():
     vq_parser.add_argument("-ckpt", "--vqgan_checkpoint", type=str, help="VQGAN checkpoint", default=None, dest='vqgan_checkpoint')
     vq_parser.add_argument("-nps",  "--noise_prompt_seeds", nargs="*", type=int, help="Noise prompt seeds", default=[], dest='noise_prompt_seeds')
     vq_parser.add_argument("-npw",  "--noise_prompt_weights", nargs="*", type=float, help="Noise prompt weights", default=[], dest='noise_prompt_weights')
-    vq_parser.add_argument("-lr",   "--learning_rate", type=float, help="Learning rate", default=0.2, dest='step_size')
+    vq_parser.add_argument("-lr",   "--learning_rate", type=float, help="Learning rate", default=0.2, dest='learning_rate')
     vq_parser.add_argument("-cuts", "--num_cuts", type=int, help="Number of cuts", default=None, dest='num_cuts')
     vq_parser.add_argument("-bats", "--batches", type=int, help="How many batches of cuts", default=1, dest='batches')
     vq_parser.add_argument("-cutp", "--cut_power", type=float, help="Cut power", default=1., dest='cut_pow')
     vq_parser.add_argument("-sd",   "--seed", type=int, help="Seed", default=None, dest='seed')
-    vq_parser.add_argument("-opt",  "--optimiser", type=str, help="Optimiser (Adam, AdamW, Adagrad, Adamax, DiffGrad, AdamP or RAdam)", default='AdamP', dest='optimiser')
+    vq_parser.add_argument("-opt",  "--optimiser", type=str, help="Optimiser (Adam, AdamW, Adagrad, Adamax, DiffGrad, AdamP or RAdam)", default='Adam', dest='optimiser')
     vq_parser.add_argument("-o",    "--output", type=str, help="Output file", default="output.png", dest='output')
     vq_parser.add_argument("-vid",  "--video", type=bool, help="Create video frames?", default=False, dest='make_video')
     vq_parser.add_argument("-d",    "--deterministic", type=bool, help="Enable cudnn.deterministic?", default=False, dest='cudnn_determinism')
@@ -1269,6 +1272,13 @@ def process_args(vq_parser, namespace=None):
         'widescreen': [200, 112]
     }
 
+    if args.size is not None:
+        global_aspect_width = args.size[0] / args.size[1]
+    elif args.aspect == "widescreen":
+        global_aspect_width = 16/9
+    else:
+        global_aspect_width = 1
+
     # determine size if not set
     if args.size is None:
         size_scale = args.scale
@@ -1286,11 +1296,6 @@ def process_args(vq_parser, namespace=None):
         else:
             print("aspect not understood, aborting -> ", args.aspect)
             exit(1)
-
-    if args.aspect == "widescreen":
-        global_aspect_width = 16/9
-    else:
-        global_aspect_width = 1
 
     if args.init_noise.lower() == "none":
         args.init_noise = None
