@@ -29,6 +29,9 @@ import kornia
 import kornia.augmentation as K
 import numpy as np
 import imageio
+import re
+
+from einops import rearrange
 
 from PIL import ImageFile, Image, PngImagePlugin
 ImageFile.LOAD_TRUNCATED_IMAGES = True
@@ -56,7 +59,7 @@ except ImportError:
     # only needed for palette stuff
     pass
 
-# print("warning: running unreleased future version")
+print("warning: running unreleased future version")
 
 # https://stackoverflow.com/a/39662359
 def isnotebook():
@@ -208,7 +211,6 @@ def parse_prompt(prompt):
     vals = vals + ['', '1', '-inf'][len(vals):]
     # print(f"parsed vals is {vals}")
     return vals[0], float(vals[1]), float(vals[2])
-
 
 from typing import cast, Dict, List, Optional, Tuple, Union
 
@@ -369,6 +371,40 @@ def resize_image(image, out_size):
     area = min(image.size[0] * image.size[1], out_size[0] * out_size[1])
     size = round((area * ratio)**0.5), round((area / ratio)**0.5)
     return image.resize(size, Image.LANCZOS)
+
+def rebuild_optimisers(args):
+    global best_loss, best_iter, best_z, num_loss_drop, max_loss_drops, iter_drop_delay
+    global drawer
+
+    drop_divisor = 4 ** num_loss_drop
+    new_opts = drawer.get_opts(drop_divisor)
+    if new_opts == None:
+        # legacy
+
+        dropped_learning_rate = args.learning_rate/drop_divisor;
+        print(f"Optimizing with {args.optimiser} set to {dropped_learning_rate}")
+
+        # Set the optimiser
+        to_optimize = [ drawer.get_z() ]
+        if args.optimiser == "Adam":
+            opt = optim.Adam(to_optimize, lr=dropped_learning_rate)        # LR=0.1
+        elif args.optimiser == "AdamW":
+            opt = optim.AdamW(to_optimize, lr=dropped_learning_rate)       # LR=0.2
+        elif args.optimiser == "Adagrad":
+            opt = optim.Adagrad(to_optimize, lr=dropped_learning_rate) # LR=0.5+
+        elif args.optimiser == "Adamax":
+            opt = optim.Adamax(to_optimize, lr=dropped_learning_rate)  # LR=0.5+?
+        elif args.optimiser == "DiffGrad":
+            opt = DiffGrad(to_optimize, lr=dropped_learning_rate)      # LR=2+?
+        elif args.optimiser == "AdamP":
+            opt = AdamP(to_optimize, lr=dropped_learning_rate)     # LR=2+?
+        elif args.optimiser == "RAdam":
+            opt = RAdam(to_optimize, lr=dropped_learning_rate)     # LR=2+?
+
+        new_opts = [opt]
+
+    return new_opts
+
 
 def do_init(args):
     global opts, perceptors, normalize, cutoutsTable, cutoutSizeTable
@@ -575,28 +611,7 @@ def do_init(args):
         embed = torch.empty([1, perceptor.visual.output_dim]).normal_(generator=gen)
         pMs.append(Prompt(embed, weight).to(device))
 
-    opts = drawer.get_opts()
-    if opts == None:
-        # legacy
-
-        # Set the optimiser
-        z = drawer.get_z();
-        if args.optimiser == "Adam":
-            opt = optim.Adam([z], lr=args.learning_rate)		# LR=0.1
-        elif args.optimiser == "AdamW":
-            opt = optim.AdamW([z], lr=args.learning_rate)		# LR=0.2
-        elif args.optimiser == "Adagrad":
-            opt = optim.Adagrad([z], lr=args.learning_rate)	# LR=0.5+
-        elif args.optimiser == "Adamax":
-            opt = optim.Adamax([z], lr=args.learning_rate)	# LR=0.5+?
-        elif args.optimiser == "DiffGrad":
-            opt = DiffGrad([z], lr=args.learning_rate)		# LR=2+?
-        elif args.optimiser == "AdamP":
-            opt = AdamP([z], lr=args.learning_rate)		# LR=2+?
-        elif args.optimiser == "RAdam":
-            opt = RAdam([z], lr=args.learning_rate)		# LR=2+?
-
-        opts = [opt]
+    opts = rebuild_optimisers(args)
 
     # Output for the user
     print('Using device:', device)
@@ -649,6 +664,12 @@ cur_anim_index=None
 anim_output_files=[]
 anim_cur_zs=[]
 anim_next_zs=[]
+best_loss = None 
+best_iter = None
+best_z = None
+num_loss_drop = 0
+max_loss_drops = 2
+iter_drop_delay = 20
 
 def make_gif(args, iter):
     gif_output = os.path.join(args.animation_dir, "anim.gif")
@@ -670,16 +691,43 @@ def make_gif(args, iter):
 #   -loop 0 {animation_output}/final.gif
 
 @torch.no_grad()
+def checkdrop(args, iter, losses):
+    global best_loss, best_iter, best_z, num_loss_drop, max_loss_drops, iter_drop_delay
+    global drawer
+
+    drop_loss_time = False
+
+    loss_sum = sum(losses)
+    is_new_best = False
+    num_cycles_not_best = 0
+    if (loss_sum < best_loss):
+        is_new_best = True
+        best_loss = loss_sum
+        best_iter = iter
+        best_z = drawer.get_z_copy()
+    else:
+        num_cycles_not_best = iter - best_iter
+        if num_cycles_not_best >= iter_drop_delay:
+            drop_loss_time = True
+    return drop_loss_time
+
+@torch.no_grad()
 def checkin(args, iter, losses):
     global drawer
-    losses_str = ', '.join(f'{loss.item():g}' for loss in losses)
-    writestr = f'iter: {iter}, loss: {sum(losses).item():g}, losses: {losses_str}'
+    global best_loss, best_iter, best_z, num_loss_drop, max_loss_drops, iter_drop_delay
+
+    num_cycles_not_best = iter - best_iter
+    losses_str = ', '.join(f'{loss.item():2.3g}' for loss in losses)
+
+    writestr = f'iter: {iter}, loss: {sum(losses).item():1.3g}, losses: {losses_str} (-{num_cycles_not_best}=>{best_loss:2.4g})'
     if args.animation_dir is not None:
         writestr = f'anim: {cur_anim_index}/{len(anim_output_files)} {writestr}'
     tqdm.write(writestr)
     info = PngImagePlugin.PngInfo()
     info.add_text('comment', f'{args.prompts}')
-    img = drawer.to_image()
+    timg = drawer.synth(cur_iteration)
+    img = TF.to_pil_image(timg[0].cpu())
+    # img = drawer.to_image()
     if cur_anim_index is None:
         outfile = args.output
     else:
@@ -887,13 +935,21 @@ def re_average_z(args):
 # torch.autograd.set_detect_anomaly(True)
 
 def train(args, cur_it):
-    global drawer;
+    global drawer, opts
+    global best_loss, best_iter, best_z, num_loss_drop, max_loss_drops, iter_drop_delay
+    
+    rebuild_opts_when_done = False
+
     for opt in opts:
         # opt.zero_grad(set_to_none=True)
         opt.zero_grad()
 
-    for i in range(args.batches):
+    num_batches = args.batches * (num_loss_drop + 1)
+    for i in range(num_batches):
         lossAll = ascend_txt(args)
+
+        if i == 0:
+            rebuild_opts_when_done = checkdrop(args, cur_it, lossAll)
 
         if i == 0 and cur_it % args.save_every == 0:
             checkin(args, cur_it, lossAll)
@@ -908,7 +964,17 @@ def train(args, cur_it):
         (cur_it % (args.overlay_every + args.overlay_offset)) == 0:
         re_average_z(args)
 
-    drawer.clip_z()    
+    drawer.clip_z()
+    if rebuild_opts_when_done:
+        num_loss_drop = num_loss_drop + 1
+        drawer.set_z(best_z)
+        # always checkin (and save) after resetting z
+        checkin(args, cur_it, lossAll)
+        if num_loss_drop > max_loss_drops:
+            return False
+        best_iter = cur_it
+        opts = rebuild_optimisers(args)
+    return True
 
 imagenet_templates = [
     "itap of a {}.",
@@ -957,7 +1023,7 @@ def do_run(args):
                     cur_iteration = step_iteration
                     drawer.set_z(anim_cur_zs[cur_anim_index])
                     for j in range(args.save_every):
-                        train(args, cur_iteration)
+                        keep_going = train(args, cur_iteration)
                         cur_iteration += 1
                         pbar.update()
                     # anim_next_zs[cur_anim_index] = drawer.get_z_copy()
@@ -977,10 +1043,11 @@ def do_run(args):
                     anim_cur_zs[i] = drawer.get_z_copy()
     else:
         try:
+            keep_going = True
             with tqdm() as pbar:
-                while True:
+                while keep_going:
                     try:
-                        train(args, cur_iteration)
+                        keep_going = train(args, cur_iteration)
                         if cur_iteration == args.iterations:
                             break
                         cur_iteration += 1
@@ -1073,7 +1140,7 @@ def setup_parser():
     vq_parser.add_argument("-psc",  "--pixel_scale", type=float, help="Pixel scale", default=None, dest='pixel_scale')
     vq_parser.add_argument("-ii",   "--init_image", type=str, help="Initial image", default=None, dest='init_image')
     vq_parser.add_argument("-iia",  "--init_image_alpha", type=int, help="Init image alpha (0-255)", default=200, dest='init_image_alpha')
-    vq_parser.add_argument("-in",   "--init_noise", type=str, help="Initial noise image (pixels or gradient)", default="pixels", dest='init_noise')
+    vq_parser.add_argument("-in",   "--init_noise", type=str, help="Initial noise image (pixels or gradient)", default="snow", dest='init_noise')
     vq_parser.add_argument("-ti",   "--target_images", type=str, help="Target images", default=None, dest='target_images')
     vq_parser.add_argument("-tiw",  "--target_image_weight", type=float, help="Target images weight", default=1.0, dest='target_image_weight')
     vq_parser.add_argument("-twp",  "--target_weight_pix", type=float, help="Target weight pix loss", default=0., dest='target_weight_pix')
@@ -1102,8 +1169,10 @@ def setup_parser():
     vq_parser.add_argument("-st",   "--strokes", type=int, help="clipdraw strokes", default=1024, dest='strokes')
     vq_parser.add_argument("-pd",   "--use_pixeldraw", type=bool, help="Use pixeldraw", default=False, dest='use_pixeldraw')
     vq_parser.add_argument("-mo",   "--do_mono", type=bool, help="Monochromatic", default=False, dest='do_mono')
+    # vq_parser.add_argument("-lc",   "--lock_colors", type=bool, help="Lock Colors (if Color Mapping)", default=False, dest='lock_colors')
     vq_parser.add_argument("-epw",  "--enforce_palette_annealing", type=int, help="enforce palette annealing, 0 -- skip", default=5000, dest='enforce_palette_annealing')
     vq_parser.add_argument("-tp",   "--target_palette", type=str, help="target palette", default=None, dest='target_palette')
+    vq_parser.add_argument("-tpl",  "--target_palette_length", type=int, help="target palette length", default=16, dest='target_palette_length')
     vq_parser.add_argument("-esw",  "--enforce_smoothness", type=int, help="enforce smoothness, 0 -- skip", default=0, dest='enforce_smoothness')
     vq_parser.add_argument("-est",  "--enforce_smoothness_type", type=str, help="enforce smoothness type: default/clipped/log", default='default', dest='enforce_smoothness_type')
     vq_parser.add_argument("-ecw",  "--enforce_saturation", type=int, help="enforce saturation, 0 -- skip", default=0, dest='enforce_saturation')
@@ -1118,6 +1187,15 @@ widescreen_size = [200, 112]  # at the small size this becomes 192,112
 # canonical interpolation function, like https://p5js.org/reference/#/p5/map
 def map_number(n, start1, stop1, start2, stop2):
   return ((n-start1)/(stop1-start1))*(stop2-start2)+start2;
+
+# parses either (255,255,0) or [1,1,0] as yellow, etc
+def parse_triple_to_rgb(s):
+    s2 = re.sub('[(\[\])]', '', s)
+    t = s2.split("+")
+    rgb = [float(n) for n in t]
+    if s[0] == "(":
+        rgb = [n / 255.0 for n in rgb]
+    return rgb
 
 # here are examples of what can be parsed
 # white   (16 color black to white ramp)
@@ -1142,7 +1220,9 @@ def get_single_rgb(s):
         "pixel_red":       [1.00, 0.53, 0.44],
         "pixel_grayscale": [1.00, 1.00, 1.00],
     }
-    if s in palette_lookups:
+    if s[0] == "("  or s[0] == "[":
+        rgb = parse_triple_to_rgb(s)
+    elif s in palette_lookups:
         rgb = palette_lookups[s]
     elif s[:4] == "mat:":
         rgb = matplotlib.colors.to_rgb(s[4:])
@@ -1228,6 +1308,7 @@ def process_args(vq_parser, namespace=None):
     global global_aspect_width
     global cur_iteration, cur_anim_index, anim_output_files, anim_cur_zs, anim_next_zs;
     global global_spot_file
+    global best_loss, best_iter, best_z, num_loss_drop, max_loss_drops, iter_drop_delay
 
     if namespace == None:
       # command line: use ARGV to get args
@@ -1354,6 +1435,13 @@ def process_args(vq_parser, namespace=None):
 
     # reset global animation variables
     cur_iteration=None
+    best_iter = cur_iteration
+    best_loss = 1e20
+    num_loss_drop = 0
+    max_loss_drops = 2
+    iter_drop_delay = 25
+    best_z = None
+
     cur_anim_index=None
     anim_output_files=[]
     anim_cur_zs=[]
