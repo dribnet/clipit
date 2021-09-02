@@ -33,7 +33,6 @@ class PixelDrawer(DrawingInterface):
             self.num_cols = int(self.num_cols / scale)
             self.num_rows = int(self.num_rows / scale)
 
-
     def load_model(self, config_path, checkpoint_path, device):
         # gamma = 1.0
 
@@ -42,6 +41,13 @@ class PixelDrawer(DrawingInterface):
         pydiffvg.set_device(device)
         self.device = device
 
+    def get_opts(self):
+        return self.opts
+
+    def rand_init(self, toksX, toksY):
+        self.init_from_tensor(None)
+
+    def init_from_tensor(self, init_tensor):
         canvas_width, canvas_height = self.canvas_width, self.canvas_height
         num_rows, num_cols = self.num_rows, self.num_cols
         cell_width = canvas_width / num_cols
@@ -52,14 +58,19 @@ class PixelDrawer(DrawingInterface):
         shape_groups = []
         colors = []
         for r in range(num_rows):
-            cur_y = r * cell_height
+            cur_y = int(0.5 + r * cell_height)
             for c in range(num_cols):
-                cur_x = c * cell_width
-                if self.do_mono:
-                    mono_color = random.random()
-                    cell_color = torch.tensor([mono_color, mono_color, mono_color, 1.0])
-                else:
+                cur_x = (0.5 + c * cell_width)
+                if init_tensor is None:
                     cell_color = torch.tensor([random.random(), random.random(), random.random(), 1.0])
+                else:
+                    try:
+                        t = (init_tensor[0] + 1.0) / 2.0
+                        cell_color = torch.tensor([t[0][int(cur_y)][int(cur_x)], t[1][int(cur_y)][int(cur_x)], t[2][int(cur_y)][int(cur_x)], 1.0])
+                    except BaseException as error:
+                        print("WTF", error)
+                        mono_color = random.random()
+                        cell_color = torch.tensor([mono_color, mono_color, mono_color, 1.0])
                 colors.append(cell_color)
                 p0 = [cur_x, cur_y]
                 p1 = [cur_x+cell_width, cur_y+cell_height]
@@ -88,17 +99,6 @@ class PixelDrawer(DrawingInterface):
         self.shapes = shapes 
         self.shape_groups  = shape_groups
         self.opts = [color_optim]
-
-    def get_opts(self):
-        return self.opts
-
-    def rand_init(self, toksX, toksY):
-        # TODO
-        pass
-
-    def init_from_tensor(self, init_tensor):
-        # TODO
-        pass
 
     def reapply_from_tensor(self, new_tensor):
         # TODO
