@@ -382,7 +382,7 @@ def rebuild_optimisers(args):
         # legacy
 
         dropped_learning_rate = args.learning_rate/drop_divisor;
-        print(f"Optimizing with {args.optimiser} set to {dropped_learning_rate}")
+        # print(f"Optimizing with {args.optimiser} set to {dropped_learning_rate}")
 
         # Set the optimiser
         to_optimize = [ drawer.get_z() ]

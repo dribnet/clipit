@@ -133,7 +133,7 @@ class VqganDrawer(DrawingInterface):
             self.z_min = model.quantize.embedding.weight.min(dim=0).values[None, :, None, None]
             self.z_max = model.quantize.embedding.weight.max(dim=0).values[None, :, None, None]
 
-    def get_opts(self):
+    def get_opts(self, decay_divisor):
         return None
 
     def rand_init(self, toksX, toksY):
