@@ -111,18 +111,16 @@ texts = [
 ]
 
 filenum = 0
-prefix = "test2_"
+prefix = "test6_"
 use_pixeldraw = True
 pix_height = 64
 image_height = pix_height * 4
-num_cuts = 65
+num_cuts = 96
 
 for text, init_image_key in texts:
-  iteration = 200
+  filenum = filenum + 1
+  iteration = 100
   aspect = "square"
-  # scale = 4
-  # scale = 2
-  # seed = 0
   seed = -1
   if seed == 0: seen = None
   # monochrom = False
@@ -137,7 +135,8 @@ for text, init_image_key in texts:
 
   # these are good settings for pixeldraw
   clipit.reset_settings()
-
+  # clipit.add_settings(enforce_saturation=500, enforce_smoothness=200)
+  clipit.add_settings(enforce_saturation=500, enforce_smoothness=100)
   clipit.add_settings(size=[image_height,image_height], pixel_size=[pix_height,pix_height])  
   clipit.add_settings(prompts=text)
   clipit.add_settings(quality="normal", num_cuts=num_cuts) #"better"
