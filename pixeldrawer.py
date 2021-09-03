@@ -53,14 +53,22 @@ class PixelDrawer(DrawingInterface):
         cell_width = canvas_width / num_cols
         cell_height = canvas_height / num_rows
 
+        tensor_cell_height = 0
+        tensor_cell_width = 0
+        if init_tensor is not None:
+            tensor_shape = init_tensor.shape
+            tensor_cell_width = tensor_shape[3] / num_cols
+            tensor_cell_height = tensor_shape[2] / num_rows
+            # print(tensor_shape, tensor_cell_width, tensor_cell_height)
+
         # Initialize Random Pixels
         shapes = []
         shape_groups = []
         colors = []
         for r in range(num_rows):
-            cur_y = int(0.5 + r * cell_height)
+            cur_y = int(0.5 + r * tensor_cell_height)
             for c in range(num_cols):
-                cur_x = (0.5 + c * cell_width)
+                cur_x = (0.5 + c * tensor_cell_width)
                 if init_tensor is None:
                     cell_color = torch.tensor([random.random(), random.random(), random.random(), 1.0])
                 else:
@@ -153,6 +161,9 @@ class PixelDrawer(DrawingInterface):
                     group.fill_color.data[:3] = avg_amount
 
     def get_z(self):
+        return None
+
+    def set_z(self, new_z):
         return None
 
     def get_z_copy(self):

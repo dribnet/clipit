@@ -818,10 +818,12 @@ def ascend_txt(args):
         else:
             cur_z_targets = [ z_targets[cur_anim_index] ]
         for z_target in cur_z_targets:
-            f = drawer.get_z().reshape(1,-1)
-            f2 = z_target.reshape(1,-1)
-            cur_loss = spherical_dist_loss(f, f2) * args.target_image_weight
-            result.append(cur_loss)
+            f_z = drawer.get_z()
+            if f_z is not None:
+                f = f_z.reshape(1,-1)
+                f2 = z_target.reshape(1,-1)
+                cur_loss = spherical_dist_loss(f, f2) * args.target_image_weight
+                result.append(cur_loss)
 
     if args.target_weight_pix:
         if target_image_tensor is None:
@@ -1375,6 +1377,10 @@ def add_settings(**kwargs):
             global_clipit_settings.pop(k, None)
         else:
             global_clipit_settings[k] = v
+
+def get_settings():
+    global global_clipit_settings
+    return global_clipit_settings.copy()
 
 def apply_settings():
     global global_clipit_settings
