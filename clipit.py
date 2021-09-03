@@ -376,7 +376,7 @@ def rebuild_optimisers(args):
     global best_loss, best_iter, best_z, num_loss_drop, max_loss_drops, iter_drop_delay
     global drawer
 
-    drop_divisor = 4 ** num_loss_drop
+    drop_divisor = 10 ** num_loss_drop
     new_opts = drawer.get_opts(drop_divisor)
     if new_opts == None:
         # legacy
@@ -946,13 +946,21 @@ def train(args, cur_it):
         # opt.zero_grad(set_to_none=True)
         opt.zero_grad()
 
+    # print("drops at ", args.learning_rate_drops)
+
     # num_batches = args.batches * (num_loss_drop + 1)
     num_batches = args.batches
     for i in range(num_batches):
         lossAll = ascend_txt(args)
 
         if i == 0:
-            rebuild_opts_when_done = checkdrop(args, cur_it, lossAll)
+            if cur_it in args.learning_rate_drops:
+                print("Dropping learning rate")
+                rebuild_opts_when_done = True
+            else:
+                did_drop = checkdrop(args, cur_it, lossAll)
+                if args.auto_stop is True:
+                    rebuild_opts_when_done = disabl
 
         if i == 0 and cur_it % args.save_every == 0:
             checkin(args, cur_it, lossAll)
@@ -1164,7 +1172,7 @@ def setup_parser():
     vq_parser.add_argument("-nps",  "--noise_prompt_seeds", nargs="*", type=int, help="Noise prompt seeds", default=[], dest='noise_prompt_seeds')
     vq_parser.add_argument("-npw",  "--noise_prompt_weights", nargs="*", type=float, help="Noise prompt weights", default=[], dest='noise_prompt_weights')
     vq_parser.add_argument("-lr",   "--learning_rate", type=float, help="Learning rate", default=0.2, dest='learning_rate')
-    vq_parser.add_argument("-lrd",  "--learning_rate_drops", nargs=1, type=str, help="When to drop learning rate (relative to iterations)", default=None, dest='learning_rate_drops')
+    vq_parser.add_argument("-lrd",  "--learning_rate_drops", nargs="*", type=float, help="When to drop learning rate (relative to iterations)", default=None, dest='learning_rate_drops')
     vq_parser.add_argument("-as",   "--auto_stop", type=bool, help="Auto stopping", default=False, dest='auto_stop')
     vq_parser.add_argument("-cuts", "--num_cuts", type=int, help="Number of cuts", default=None, dest='num_cuts')
     vq_parser.add_argument("-bats", "--batches", type=int, help="How many batches of cuts", default=1, dest='batches')
@@ -1445,8 +1453,13 @@ def process_args(vq_parser, namespace=None, do_both=False):
         if not os.path.exists('steps'):
             os.mkdir('steps')
 
+    if args.learning_rate_drops is None:
+        args.learning_rate_drops = []
+    else:
+        args.learning_rate_drops = [int(map_number(n, 0, 100, 0, args.iterations-1)) for n in args.learning_rate_drops]
+
     # reset global animation variables
-    cur_iteration=None
+    cur_iteration=0
     best_iter = cur_iteration
     best_loss = 1e20
     num_loss_drop = 0
