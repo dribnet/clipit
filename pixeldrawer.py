@@ -109,7 +109,7 @@ class PixelDrawer(DrawingInterface):
         # Optimizers
         # points_optim = torch.optim.Adam(points_vars, lr=1.0)
         # width_optim = torch.optim.Adam(stroke_width_vars, lr=0.1)
-        color_optim = torch.optim.Adam(self.color_vars, lr=0.02/decay_divisor)
+        color_optim = torch.optim.Adam(self.color_vars, lr=0.03/decay_divisor)
         self.opts = [color_optim]
         return self.opts
 
@@ -188,12 +188,17 @@ class PixelDrawer(DrawingInterface):
     def get_z(self):
         return None
 
-    def set_z(self, new_z):
-        return None
-
     def get_z_copy(self):
-        return None
+        shape_groups_copy = []
+        for group in self.shape_groups:
+            group_copy = torch.clone(group.fill_color.data)
+            shape_groups_copy.append(group_copy)
+        return shape_groups_copy
 
     def set_z(self, new_z):
+        l = len(new_z)
+        for l in range(len(new_z)):
+            active_group = self.shape_groups[l]
+            new_group = new_z[l]
+            active_group.fill_color.data.copy_(new_group)
         return None
-

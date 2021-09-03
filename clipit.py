@@ -946,7 +946,8 @@ def train(args, cur_it):
         # opt.zero_grad(set_to_none=True)
         opt.zero_grad()
 
-    num_batches = args.batches * (num_loss_drop + 1)
+    # num_batches = args.batches * (num_loss_drop + 1)
+    num_batches = args.batches
     for i in range(num_batches):
         lossAll = ascend_txt(args)
 
@@ -967,6 +968,10 @@ def train(args, cur_it):
         re_average_z(args)
 
     drawer.clip_z()
+    if cur_iteration == args.iterations:
+        drawer.set_z(best_z)
+        checkin(args, cur_it, lossAll)
+        return False
     if rebuild_opts_when_done:
         num_loss_drop = num_loss_drop + 1
         drawer.set_z(best_z)
@@ -1159,6 +1164,8 @@ def setup_parser():
     vq_parser.add_argument("-nps",  "--noise_prompt_seeds", nargs="*", type=int, help="Noise prompt seeds", default=[], dest='noise_prompt_seeds')
     vq_parser.add_argument("-npw",  "--noise_prompt_weights", nargs="*", type=float, help="Noise prompt weights", default=[], dest='noise_prompt_weights')
     vq_parser.add_argument("-lr",   "--learning_rate", type=float, help="Learning rate", default=0.2, dest='learning_rate')
+    vq_parser.add_argument("-lrd",  "--learning_rate_drops", nargs=1, type=str, help="When to drop learning rate (relative to iterations)", default=None, dest='learning_rate_drops')
+    vq_parser.add_argument("-as",   "--auto_stop", type=bool, help="Auto stopping", default=False, dest='auto_stop')
     vq_parser.add_argument("-cuts", "--num_cuts", type=int, help="Number of cuts", default=None, dest='num_cuts')
     vq_parser.add_argument("-bats", "--batches", type=int, help="How many batches of cuts", default=1, dest='batches')
     vq_parser.add_argument("-cutp", "--cut_power", type=float, help="Cut power", default=1., dest='cut_pow')
@@ -1306,7 +1313,7 @@ def palette_from_string(s):
         pal = pal + palette_from_section(c)
     return pal
 
-def process_args(vq_parser, namespace=None):
+def process_args(vq_parser, namespace=None, do_both=False):
     global global_aspect_width
     global cur_iteration, cur_anim_index, anim_output_files, anim_cur_zs, anim_next_zs;
     global global_spot_file
@@ -1315,6 +1322,9 @@ def process_args(vq_parser, namespace=None):
     if namespace == None:
       # command line: use ARGV to get args
       args = vq_parser.parse_args()
+    elif do_both:
+      # sometimes there are both settings and cmd line
+      args = vq_parser.parse_args(namespace=namespace)        
     else:
       # notebook, ignore ARGV and use dictionary instead
       args = vq_parser.parse_args(args=[], namespace=namespace)
@@ -1440,8 +1450,8 @@ def process_args(vq_parser, namespace=None):
     best_iter = cur_iteration
     best_loss = 1e20
     num_loss_drop = 0
-    max_loss_drops = 2
-    iter_drop_delay = 25
+    max_loss_drops = 1
+    iter_drop_delay = 12
     best_z = None
 
     cur_anim_index=None
@@ -1470,7 +1480,7 @@ def get_settings():
     global global_clipit_settings
     return global_clipit_settings.copy()
 
-def apply_settings():
+def apply_settings(do_both=False):
     global global_clipit_settings
     settingsDict = None
     vq_parser = setup_parser()
@@ -1487,7 +1497,14 @@ def apply_settings():
         # settingsDict = easydict.EasyDict(global_clipit_settings)
         settingsDict = SimpleNamespace(**global_clipit_settings)
 
-    settings = process_args(vq_parser, settingsDict)
+    settings = process_args(vq_parser, settingsDict, do_both)
+    return settings
+
+def command_line_override():
+    global global_clipit_settings
+    settingsDict = None
+    vq_parser = setup_parser()
+    settings = process_args(vq_parser)
     return settings
 
 def main():

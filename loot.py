@@ -117,17 +117,21 @@ texts = [
   ('gauntlets of the fox #pixelart', 'gauntlet'),
 ]
 
+save_location = "outputs/loot/" # update this obviously
+
+# example: python loot.py 20
+# or     : python loot.py 21 --num_cuts 64
+
 def main():
-  num_cuts = 96
+  num_cuts = 96      # adjust this here or override with "--num_cuts foo" to save memory
+  iterations = 200   # note: this is a maximum because early-stopping is enabled
   pix_height = 64
   image_height = pix_height * 4
-  iterations = 100
-  num_cuts = 96
   prefix = "settings1"
 
-  which_item = int(sys.argv.pop())
-  text, init_image_key = texts[which_item]
-  # setup defaults for loot (ARGV will still override)
+  which_item = int(sys.argv.pop(1))
+  text, init_image_key = texts[which_item-1]
+  # This loads in default settings, but command line can override
   clipit.reset_settings()
   clipit.add_settings(size=[image_height,image_height], pixel_size=[pix_height,pix_height])
   clipit.add_settings(quality="better", num_cuts=num_cuts) #"better"
@@ -135,12 +139,12 @@ def main():
   clipit.add_settings(iterations=iterations, save_every=10)
   clipit.add_settings(prompts=text)
   clipit.add_settings(init_image=templates[init_image_key])
-  clipit.add_settings(output=f"outputs/loot/{prefix}_{(which_item+1):03}.png")
+  clipit.add_settings(output=f"{save_location}/{prefix}_{(which_item):03}.png")
   if init_image_key in smoothness_settings:
     clipit.add_settings(enforce_smoothness=smoothness_settings[init_image_key])
   elif 'default' in smoothness_settings:
     clipit.add_settings(enforce_smoothness=smoothness_settings['default'])
-  settings = clipit.apply_settings()
+  settings = clipit.apply_settings(do_both=True)
   clipit.do_init(settings)
   clipit.do_run(settings)
 
