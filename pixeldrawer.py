@@ -49,6 +49,7 @@ class PixelDrawer(DrawingInterface):
         self.init_from_tensor(None)
 
     def init_from_tensor(self, init_tensor):
+        # print("----> SHAPE", self.num_rows, self.num_cols)
         canvas_width, canvas_height = self.canvas_width, self.canvas_height
         num_rows, num_cols = self.num_rows, self.num_cols
         cell_width = canvas_width / num_cols
@@ -67,15 +68,18 @@ class PixelDrawer(DrawingInterface):
         shape_groups = []
         colors = []
         for r in range(num_rows):
-            cur_y = int(0.5 + r * tensor_cell_height)
+            tensor_cur_y = int(0.5 + r * tensor_cell_height)
+            cur_y = r * cell_height
             for c in range(num_cols):
-                cur_x = (0.5 + c * tensor_cell_width)
+                tensor_cur_x = (0.5 + c * tensor_cell_width)
+                cur_x = c * cell_width
                 if init_tensor is None:
                     cell_color = torch.tensor([random.random(), random.random(), random.random(), 1.0])
                 else:
                     try:
                         t = (init_tensor[0] + 1.0) / 2.0
-                        cell_color = torch.tensor([t[0][int(cur_y)][int(cur_x)], t[1][int(cur_y)][int(cur_x)], t[2][int(cur_y)][int(cur_x)], 1.0])
+                        # t = init_tensor[0]
+                        cell_color = torch.tensor([t[0][int(tensor_cur_y)][int(tensor_cur_x)], t[1][int(tensor_cur_y)][int(tensor_cur_x)], t[2][int(tensor_cur_y)][int(tensor_cur_x)], 1.0])
                     except BaseException as error:
                         print("WTF", error)
                         mono_color = random.random()
@@ -105,7 +109,7 @@ class PixelDrawer(DrawingInterface):
         self.shapes = shapes 
         self.shape_groups  = shape_groups
 
-    def get_opts(self, decay_divisor):
+    def get_opts(self, decay_divisor=1):
         # Optimizers
         # points_optim = torch.optim.Adam(points_vars, lr=1.0)
         # width_optim = torch.optim.Adam(stroke_width_vars, lr=0.1)

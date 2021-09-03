@@ -1,7 +1,8 @@
 quality: "better"
 use_pixeldraw: True
+init_noise: "pixel"
 pixel_size: [64, 64]
-size: [256,256]
+size: [320,320]
 num_cuts: 96
 iterations: 120
 learning_rate_drops: [80]

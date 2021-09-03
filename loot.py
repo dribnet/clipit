@@ -117,7 +117,7 @@ save_location = "outputs/loot/" # update this obviously
 # or     : python loot.py 21 --num_cuts 64
 
 def main():
-  prefix = "settings4"
+  prefix = "settings5"
 
   with open("loot_settings.yaml", 'r') as stream:
       try:
