@@ -1,6 +1,6 @@
 quality: "better"
 use_pixeldraw: True
-init_noise: "pixel"
+init_noise: "pixels"
 pixel_size: [64, 64]
 size: [320,320]
 num_cuts: 96
