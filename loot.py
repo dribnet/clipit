@@ -21,7 +21,8 @@ templates = {
 # this is an example of how different items could have different settings
 smoothness_settings = {
   'robe'  : 100,
-  'gloves': 100
+  'gloves': 100,
+  'default': 500
 }
 
 texts = [
@@ -137,6 +138,8 @@ def main():
   clipit.add_settings(output=f"outputs/loot/{prefix}_{(which_item+1):03}.png")
   if init_image_key in smoothness_settings:
     clipit.add_settings(enforce_smoothness=smoothness_settings[init_image_key])
+  elif 'default' in smoothness_settings:
+    clipit.add_settings(enforce_smoothness=smoothness_settings['default'])
   settings = clipit.apply_settings()
   clipit.do_init(settings)
   clipit.do_run(settings)
