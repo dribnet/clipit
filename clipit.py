@@ -826,19 +826,19 @@ def ascend_txt(args):
         palette_loss = torch.mean( torch.norm( diffs, 2, dim=1 ) )*cur_cutouts[cutoutSize].shape[0]
         result.append( palette_loss*cur_iteration/args.enforce_palette_annealing )
 
-    if args.enforce_smoothness and args.enforce_smoothness_type:
+    if args.smoothness > 0 and args.smoothness_type:
         _pixels = cur_cutouts[cutoutSize].permute(0,2,3,1).reshape(-1,cur_cutouts[cutoutSize].shape[2],3)
         gyr, gxr = torch.gradient(_pixels[:,:,0])
         gyg, gxg = torch.gradient(_pixels[:,:,1])
         gyb, gxb = torch.gradient(_pixels[:,:,2])
         sharpness = torch.sqrt(gyr**2 + gxr**2+ gyg**2 + gxg**2 + gyb**2 + gxb**2)
-        if args.enforce_smoothness_type=='clipped':
+        if args.smoothness_type=='clipped':
             sharpness = torch.clamp( sharpness, max=0.5 )
-        elif args.enforce_smoothness_type=='log':
+        elif args.smoothness_type=='log':
             sharpness = torch.log( torch.ones_like(sharpness)+sharpness )
         sharpness = torch.mean( sharpness )
 
-        result.append( sharpness*cur_iteration/args.enforce_smoothness )
+        result.append( sharpness*args.smoothness )
 
     if args.enforce_saturation:
         # based on the old "percepted colourfulness" heuristic from Hasler and Süsstrunk’s 2003 paper
@@ -1190,8 +1190,8 @@ def setup_parser():
     vq_parser.add_argument("-epw",  "--enforce_palette_annealing", type=int, help="enforce palette annealing, 0 -- skip", default=5000, dest='enforce_palette_annealing')
     vq_parser.add_argument("-tp",   "--target_palette", type=str, help="target palette", default=None, dest='target_palette')
     vq_parser.add_argument("-tpl",  "--target_palette_length", type=int, help="target palette length", default=16, dest='target_palette_length')
-    vq_parser.add_argument("-esw",  "--enforce_smoothness", type=int, help="enforce smoothness, 0 -- skip", default=0, dest='enforce_smoothness')
-    vq_parser.add_argument("-est",  "--enforce_smoothness_type", type=str, help="enforce smoothness type: default/clipped/log", default='default', dest='enforce_smoothness_type')
+    vq_parser.add_argument("-esw",  "--smoothness", type=float, help="enforce smoothness, 0 -- skip", default=0, dest='smoothness')
+    vq_parser.add_argument("-est",  "--smoothness_type", type=str, help="enforce smoothness type: default/clipped/log", default='default', dest='smoothness_type')
     vq_parser.add_argument("-ecw",  "--enforce_saturation", type=int, help="enforce saturation, 0 -- skip", default=0, dest='enforce_saturation')
 
     return vq_parser
