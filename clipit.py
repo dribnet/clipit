@@ -30,6 +30,7 @@ import kornia.augmentation as K
 import numpy as np
 import imageio
 import re
+import random
 
 from einops import rearrange
 
@@ -641,8 +642,11 @@ def do_init(args):
         seed = torch.seed()
     else:
         seed = args.seed
+    int_seed = int(seed)%(2**30)
+    print('Using seed:', seed, int_seed)
     torch.manual_seed(seed)
-    print('Using seed:', seed)
+    np.random.seed(int_seed)
+    random.seed(int_seed)
 
 
 # dreaded globals (for now)
