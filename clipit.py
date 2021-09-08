@@ -1178,7 +1178,7 @@ def setup_parser():
     vq_parser.add_argument("-nps",  "--noise_prompt_seeds", nargs="*", type=int, help="Noise prompt seeds", default=[], dest='noise_prompt_seeds')
     vq_parser.add_argument("-npw",  "--noise_prompt_weights", nargs="*", type=float, help="Noise prompt weights", default=[], dest='noise_prompt_weights')
     vq_parser.add_argument("-lr",   "--learning_rate", type=float, help="Learning rate", default=0.2, dest='learning_rate')
-    vq_parser.add_argument("-lrd",  "--learning_rate_drops", nargs="*", type=float, help="When to drop learning rate (relative to iterations)", default=None, dest='learning_rate_drops')
+    vq_parser.add_argument("-lrd",  "--learning_rate_drops", nargs="*", type=float, help="When to drop learning rate (relative to iterations)", default=[80, 90], dest='learning_rate_drops')
     vq_parser.add_argument("-as",   "--auto_stop", type=bool, help="Auto stopping", default=False, dest='auto_stop')
     vq_parser.add_argument("-cuts", "--num_cuts", type=int, help="Number of cuts", default=None, dest='num_cuts')
     vq_parser.add_argument("-bats", "--batches", type=int, help="How many batches of cuts", default=1, dest='batches')
@@ -1469,7 +1469,7 @@ def process_args(vq_parser, namespace=None, do_both=False):
     best_iter = cur_iteration
     best_loss = 1e20
     num_loss_drop = 0
-    max_loss_drops = 1
+    max_loss_drops = len(args.learning_rate_drops)
     iter_drop_delay = 12
     best_z = None
 
