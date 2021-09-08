@@ -1,4 +1,6 @@
-MIT License
+clipit is currently covered by different licenses for different modules
+
+VQGAN: MIT License
 
 Copyright (c) 2021 Katherine Crowson
 
@@ -19,3 +21,7 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
+
+ClipDraw: No License
+
+PixelDraw: No License
