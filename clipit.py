@@ -4,6 +4,7 @@ from urllib.request import urlopen
 import sys
 import os
 import json
+import cv2
 import subprocess
 import glob
 from braceexpand import braceexpand
