@@ -28,6 +28,7 @@ from CLIP import clip
 import kornia
 import kornia.augmentation as K
 import numpy as np
+from scipy.ndimage import zoom
 import imageio
 
 from PIL import ImageFile, Image, PngImagePlugin
@@ -109,6 +110,93 @@ def ramp(ratio, width):
         out[i] = cur
         cur += ratio
     return torch.cat([-out[1:].flip([0]), out])[1:-1]
+
+def clipped_zoom(img, zoom_factor, **kwargs):
+
+    h, w = img.shape[:2]
+
+    # For multichannel images we don't want to apply the zoom factor to the RGB
+    # dimension, so instead we create a tuple of zoom factors, one per array
+    # dimension, with 1's for any trailing dimensions after the width and height.
+    zoom_tuple = (zoom_factor,) * 2 + (1,) * (img.ndim - 2)
+
+    # Zooming out
+    if zoom_factor < 1:
+
+        # Bounding box of the zoomed-out image within the output array
+        zh = int(np.round(h * zoom_factor))
+        zw = int(np.round(w * zoom_factor))
+        top = (h - zh) // 2
+        left = (w - zw) // 2
+
+        # Zero-padding
+        out = np.zeros_like(img)
+        out[top:top+zh, left:left+zw] = zoom(img, zoom_tuple, **kwargs)
+
+    # Zooming in
+    elif zoom_factor > 1:
+
+        # Bounding box of the zoomed-in region within the input array
+        zh = int(np.round(h / zoom_factor))
+        zw = int(np.round(w / zoom_factor))
+        top = (h - zh) // 2
+        left = (w - zw) // 2
+        out = zoom(img[top:top+zh, left:left+zw], zoom_tuple, **kwargs)
+
+        # `out` might still be slightly larger than `img` due to rounding, so
+        # trim off any extra pixels at the edges
+        trim_top = ((out.shape[0] - h) // 2)
+        trim_left = ((out.shape[1] - w) // 2)
+        out = out[trim_top:trim_top+h, trim_left:trim_left+w]
+
+    # If zoom_factor == 1, just return the input array
+    else:
+        out = img
+    return out
+
+def cv2_clipped_zoom(img, zoom_factor=0):
+
+    """
+    Center zoom in/out of the given image and returning an enlarged/shrinked view of
+    the image without changing dimensions
+    ------
+    Args:
+        img : ndarray
+            Image array
+        zoom_factor : float
+            amount of zoom as a ratio [0 to Inf). Default 0.
+    ------
+    Returns:
+        result: ndarray
+           numpy ndarray of the same shape of the input img zoomed by the specified factor.
+    """
+    if zoom_factor == 0:
+        return img
+
+
+    height, width = img.shape[:2] # It's also the final desired shape
+    new_height, new_width = int(height * zoom_factor), int(width * zoom_factor)
+
+    ### Crop only the part that will remain in the result (more efficient)
+    # Centered bbox of the final desired size in resized (larger/smaller) image coordinates
+    y1, x1 = max(0, new_height - height) // 2, max(0, new_width - width) // 2
+    y2, x2 = y1 + height, x1 + width
+    bbox = np.array([y1,x1,y2,x2])
+    # Map back to original image coordinates
+    bbox = (bbox / zoom_factor).astype(np.int)
+    y1, x1, y2, x2 = bbox
+    cropped_img = img[y1:y2, x1:x2]
+
+    # Handle padding when downscaling
+    resize_height, resize_width = min(new_height, height), min(new_width, width)
+    pad_height1, pad_width1 = (height - resize_height) // 2, (width - resize_width) //2
+    pad_height2, pad_width2 = (height - resize_height) - pad_height1, (width - resize_width) - pad_width1
+    pad_spec = [(pad_height1, pad_height2), (pad_width1, pad_width2)] + [(0,0)] * (img.ndim - 2)
+
+    result = cv2.resize(cropped_img, (resize_width, resize_height))
+    result = np.pad(result, pad_spec, mode='constant')
+    assert result.shape[0] == height and result.shape[1] == width
+    return result
 
 
 # NR: Testing with different intital images
@@ -871,7 +959,7 @@ def ascend_txt(args):
 
     if args.make_video:    
         img = np.array(out.mul(255).clamp(0, 255)[0].cpu().detach().numpy().astype(np.uint8))[:,:,:]
-        img = np.transpose(img, (1, 2, 0))
+        img = cv2_clipped_zoom(np.transpose(img, (1, 2, 0)),args.zoom)
         imageio.imwrite(f'./steps/frame_{cur_iteration:04d}.png', np.array(img))
 
     return result
@@ -1013,7 +1101,7 @@ def do_video(args):
 
     total_frames = last_frame-init_frame
 
-    length = 15 # Desired time of the video in seconds
+    length = args.video_length # Desired time of the video in seconds
 
     frames = []
     tqdm.write('Generating video...')
@@ -1103,6 +1191,8 @@ def setup_parser():
     vq_parser.add_argument("-opt",  "--optimiser", type=str, help="Optimiser (Adam, AdamW, Adagrad, Adamax, DiffGrad, AdamP or RAdam)", default='Adam', dest='optimiser')
     vq_parser.add_argument("-o",    "--output", type=str, help="Output file", default="output.png", dest='output')
     vq_parser.add_argument("-vid",  "--video", type=bool, help="Create video frames?", default=False, dest='make_video')
+    vq_parser.add_argument("-vidl",  "--video_length", type=int, help="Video length in seconds", default=3, dest='video_length')
+    vq_parser.add_argument("-zoom",  "--zoom", type=int, help="zoom", default=1, dest='Zoom')
     vq_parser.add_argument("-d",    "--deterministic", type=bool, help="Enable cudnn.deterministic?", default=False, dest='cudnn_determinism')
     vq_parser.add_argument("-cd",   "--use_clipdraw", type=bool, help="Use clipdraw", default=False, dest='use_clipdraw')
     vq_parser.add_argument("-st",   "--strokes", type=int, help="clipdraw strokes", default=1024, dest='strokes')
