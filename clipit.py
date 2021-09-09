@@ -1192,7 +1192,7 @@ def setup_parser():
     vq_parser.add_argument("-o",    "--output", type=str, help="Output file", default="output.png", dest='output')
     vq_parser.add_argument("-vid",  "--video", type=bool, help="Create video frames?", default=False, dest='make_video')
     vq_parser.add_argument("-vidl",  "--video_length", type=int, help="Video length in seconds", default=3, dest='video_length')
-    vq_parser.add_argument("-zoom",  "--zoom", type=int, help="zoom", default=1, dest='Zoom')
+    vq_parser.add_argument("-zoom",  "--zoom", type=int, help="zoom", default=1, dest='zoom')
     vq_parser.add_argument("-d",    "--deterministic", type=bool, help="Enable cudnn.deterministic?", default=False, dest='cudnn_determinism')
     vq_parser.add_argument("-cd",   "--use_clipdraw", type=bool, help="Use clipdraw", default=False, dest='use_clipdraw')
     vq_parser.add_argument("-st",   "--strokes", type=int, help="clipdraw strokes", default=1024, dest='strokes')
