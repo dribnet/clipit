@@ -1,5 +1,8 @@
 # clipit 
 
+This fork is just for me to noodle with some internal settings for my Collab stuff
+
+--------------------------- 
 Yet Another VQGAN-CLIP Codebase
 
 ![Alt text](https://user-images.githubusercontent.com/945979/127161241-71c12972-498c-48c3-bff7-df4d86306c3e.png "it looks like you're writing an image")
