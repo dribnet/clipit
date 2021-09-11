@@ -2,7 +2,7 @@
 
 ### Note: Updates now in [pixray](https://github.com/dribnet/pixray) project.
 
-This repo is now used to host Google Colab notebooks which demostrate various pixraw capabilities. Issues and pull requests for this repo should be specific to the notebooks as the python library here is now out of date and only remains to support notebooks out in the wild.
+This repo is now used to host Google Colab notebooks which demostrate various pixray capabilities. Issues and pull requests for this repo should be specific to the notebooks as the python library here is now out of date and only remains to support notebooks out in the wild.
 
 This version was originally a fork of @nerdyrodent's VQGAN-CLIP code which itself was based on the notebooks of @RiversWithWings and @advadnoun. 
 
