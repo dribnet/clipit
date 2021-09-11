@@ -1,14 +1,10 @@
 # clipit 
 
-Yet Another VQGAN-CLIP Codebase
+Note: Main development of features is now in the separate [pixray](https://github.com/dribnet/pixray) project. This repo is now used to host Google Colab notebooks which demostrate various pixraw capabilities. Issues and pull requests for this repo should be specific to the notebooks as the python library here is now out of date and only remains to support notebooks out in the wild.
 
-![Alt text](https://user-images.githubusercontent.com/945979/127161241-71c12972-498c-48c3-bff7-df4d86306c3e.png "it looks like you're writing an image")
+This version was originally a fork of @nerdyrodent's VQGAN-CLIP code which itself was based on the notebooks of @RiversWithWings and @advadnoun. 
 
-This started as a fork of @nerdyrodent's VQGAN-CLIP code which was based on the notebooks of @RiversWithWings and @advadnoun. But it quickly morphed into a version of the code that had been tuned up with slightly different behavior and features. It also runs either at the command line *or* in a notebook *or* (soon) in batch mode. 
-
-Basically this is a verison of the notebook with opinionated defaults and slighly different internals. You are welcome to use it if you'd like.
-
-For now, checkout [THE DEMO NOTEBOOKS](demos/README.md) - especially the super simple "Start Here" colab.
+To get started with pixray, check out [THE DEMO NOTEBOOKS](demos/README.md) - especially the super simple "Start Here" colab.
 
 
 # Citations
