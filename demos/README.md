@@ -7,4 +7,7 @@
 | Pixel Art  |  [![Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/dribnet/clipit/blob/master/demos/PixelDrawer.ipynb)  |
 | Palette  |  [![Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/dribnet/clipit/blob/master/demos/palette_enforcement.ipynb)  |
 | Init Image  | [![Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/dribnet/clipit/blob/master/demos/PixelDrawer_Init_Image.ipynb)  |
+| Pixel Swirl  | [![Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/dribnet/clipit/blob/master/demos/Pixray_Swirl_Demo.ipynb)  |
 | Image Prompt  | Coming soon  |
+| Target Image  | Coming soon  |
+| Color Mapper  | Coming soon  |
